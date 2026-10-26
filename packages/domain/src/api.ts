@@ -202,6 +202,87 @@ export const PatchProjectMemberReqSchema = z.object({
   role: ProjectRoleSchema,
 });
 
+/** Invite / add a user into a tenant (and optional project grants). Reuses User by email. */
+export const CreateInvitationReqSchema = z.object({
+  email: z.string().email(),
+  displayName: z.string().min(1).max(64).optional(),
+  tenantRole: TenantRoleSchema.default("member"),
+  projectGrants: z
+    .array(
+      z.object({
+        projectId: UuidSchema,
+        role: ProjectRoleSchema,
+      }),
+    )
+    .optional(),
+});
+
+export const InvitationSchema = z.object({
+  id: UuidSchema,
+  email: z.string().email(),
+  tenantRole: TenantRoleSchema,
+  projectGrants: z.array(
+    z.object({
+      projectId: UuidSchema,
+      role: ProjectRoleSchema,
+    }),
+  ),
+  expiresAt: TimestampSchema,
+  acceptedAt: TimestampSchema.nullable(),
+  inviteUrl: z.string().optional(),
+  reusedExistingUser: z.boolean(),
+  userId: UuidSchema,
+});
+
+export const UserTenantBindingSchema = z.object({
+  tenantId: UuidSchema,
+  tenantName: z.string(),
+  tenantSlug: z.string(),
+  status: TenantStatusSchema,
+  role: TenantRoleSchema,
+});
+
+export const UserProjectBindingSchema = z.object({
+  projectId: UuidSchema,
+  projectName: z.string(),
+  projectKey: z.string(),
+  tenantId: UuidSchema,
+  role: ProjectRoleSchema,
+  archivedAt: TimestampSchema.nullable(),
+});
+
+export const UserBindingsSchema = z.object({
+  userId: UuidSchema,
+  email: z.string().email(),
+  displayName: z.string(),
+  tenants: z.array(UserTenantBindingSchema),
+  projects: z.array(UserProjectBindingSchema),
+});
+
+export const DirectoryUserSchema = z.object({
+  userId: UuidSchema,
+  email: z.string().email(),
+  displayName: z.string(),
+  tenants: z.array(UserTenantBindingSchema),
+  projects: z.array(UserProjectBindingSchema),
+});
+
+export const PutUserBindingsReqSchema = z.object({
+  /** Desired memberships for tenants the actor can manage. Omitted manageable tenants are unbound. */
+  tenants: z.array(
+    z.object({
+      tenantId: UuidSchema,
+      role: TenantRoleSchema,
+      projects: z.array(
+        z.object({
+          projectId: UuidSchema,
+          role: ProjectRoleSchema,
+        }),
+      ),
+    }),
+  ),
+});
+
 export const CredentialMetaSchema = z.object({
   baseUrl: z.string().url().optional(),
   defaultModel: z.string().optional(),
@@ -450,6 +531,12 @@ export type PatchTenantReq = z.infer<typeof PatchTenantReqSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
 export type CreateProjectReq = z.infer<typeof CreateProjectReqSchema>;
 export type PatchProjectReq = z.infer<typeof PatchProjectReqSchema>;
+export type ProjectMember = z.infer<typeof ProjectMemberSchema>;
+export type CreateInvitationReq = z.infer<typeof CreateInvitationReqSchema>;
+export type Invitation = z.infer<typeof InvitationSchema>;
+export type UserBindings = z.infer<typeof UserBindingsSchema>;
+export type DirectoryUser = z.infer<typeof DirectoryUserSchema>;
+export type PutUserBindingsReq = z.infer<typeof PutUserBindingsReqSchema>;
 export type Issue = z.infer<typeof IssueSchema>;
 export type UserCredential = z.infer<typeof UserCredentialSchema>;
 export type ProjectCredential = z.infer<typeof ProjectCredentialSchema>;

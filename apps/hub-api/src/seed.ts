@@ -103,8 +103,9 @@ async function main() {
     logger.info({ key: "DEMO" }, "created demo project");
   }
 
-  // optional member user
+  // optional member user (password synced so `pnpm seed` recovers after tests wipe/recreate users)
   const memberEmail = "member@example.com";
+  const memberPassword = "member-password-change-me";
   let member = await findUserByEmail(db, memberEmail);
   if (!member) {
     const id = newId();
@@ -115,11 +116,23 @@ async function main() {
         email: memberEmail,
         displayName: "Demo Member",
         handle: "member",
-        passwordHash: await ensurePasswordHash("member-password-change-me"),
+        passwordHash: await ensurePasswordHash(memberPassword),
       })
       .returning();
     member = row!;
     logger.info({ email: memberEmail }, "created demo member user");
+  } else {
+    await db
+      .update(users)
+      .set({
+        passwordHash: await ensurePasswordHash(memberPassword),
+        status: "active",
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, member.id));
+    const [fresh] = await db.select().from(users).where(eq(users.id, member.id)).limit(1);
+    member = fresh!;
+    logger.info({ email: memberEmail }, "synced demo member password");
   }
 
   const [tm] = await db

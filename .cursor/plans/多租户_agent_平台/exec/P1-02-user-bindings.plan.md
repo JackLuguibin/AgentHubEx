@@ -4,24 +4,25 @@ overview: 用户与多空间绑定对话框 + 邀请按邮箱复用账号。
 todos:
   - id: members-tabs
     content: 成员页双 Tab：当前项目成员 | 用户与多空间绑定
-    status: pending
+    status: completed
   - id: binding-dialog
     content: 绑定对话框：多选租户→勾选项目并分别设角色（对齐 memberships.js）
-    status: pending
+    status: completed
   - id: invite-email-reuse
     content: 邀请 API/UI：按邮箱复用已有 User，不重复建号
-    status: pending
+    status: completed
   - id: cascade-last-owner-ui
     content: UI 呈现级联解绑与最后 owner 409 错误
-    status: pending
+    status: completed
   - id: rbac-gate
     content: 按 tenant.admin/project.owner 隐藏无权限操作
-    status: pending
+    status: completed
   - id: dod-bindings
     content: DoD：绑多租户多项目；撤租户绑定级联；拒删最后 owner
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P1-02 用户与多空间绑定
 
 > **索引 todo**：`phase1-user-bindings` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

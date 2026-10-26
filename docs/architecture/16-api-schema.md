@@ -108,11 +108,36 @@ type TenantMember = { userId: Uuid; email: string; displayName: string; role: Te
 
 type CreateInvitationReq = {
   email: string
+  displayName?: string
   tenantRole: TenantRole
   projectGrants?: { projectId: Uuid; role: ProjectRole }[]
 }
-type Invitation = CreateInvitationReq & { id: Uuid; expiresAt: Timestamp; acceptedAt: Timestamp | null; inviteUrl?: string /* 仅创建时返回 */ }
-// POST/GET /v1/tenants/{t}/invitations ; DELETE /v1/tenants/{t}/invitations/{id}
+type Invitation = {
+  id: Uuid; email: string; tenantRole: TenantRole
+  projectGrants: { projectId: Uuid; role: ProjectRole }[]
+  expiresAt: Timestamp; acceptedAt: Timestamp | null
+  inviteUrl?: string /* 仅创建时返回 */
+  reusedExistingUser: boolean
+  userId: Uuid
+}
+// POST /v1/tenants/{t}/invitations
+//   规则：按邮箱复用已有 User（不重复建号）；已是租户成员 → 409（改走绑定管理）
+// GET/DELETE invitations（邮件令牌流）后续补充
+
+// 用户多空间绑定（成员页「用户与多空间绑定」对话框）
+type UserBindings = {
+  userId: Uuid; email: string; displayName: string
+  tenants: { tenantId: Uuid; tenantName: string; tenantSlug: string; status: 'active'|'suspended'; role: TenantRole }[]
+  projects: { projectId: Uuid; projectName: string; projectKey: string; tenantId: Uuid; role: ProjectRole; archivedAt: Timestamp | null }[]
+}
+type PutUserBindingsReq = {
+  tenants: { tenantId: Uuid; role: TenantRole; projects: { projectId: Uuid; role: ProjectRole }[] }[]
+}
+// GET /v1/directory/users?tenantId=&q= → Page<UserBindings>   // 可管理租户内用户目录
+// GET /v1/bindings/catalog → { items: { tenantId, name, slug, status, canEdit, projects: { projectId, name, key, archivedAt }[] }[] }
+// GET /v1/users/{userId}/bindings → UserBindings
+// PUT /v1/users/{userId}/bindings { tenants } → UserBindings
+//   规则：仅处理调用方可管理的租户；取消租户绑定级联清其下项目绑定；不可去掉最后一名 tenant/project owner（409 CONFLICT）
 
 type ApiKey = { id: Uuid; name: string; prefix: string; scopes: string[]; actingUserId: Uuid | null; expiresAt: Timestamp | null; lastUsedAt: Timestamp | null }
 type CreateApiKeyReq = { name: string; scopes: string[] /* permission 名 */; expiresInDays?: number /* 1..365 */; actingUserId?: Uuid }

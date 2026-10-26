@@ -11,6 +11,7 @@ import { authRoutes, meRoutes } from "./routes/auth.js";
 import { credentialRoutes } from "./routes/credentials.js";
 import { instanceRoutes } from "./routes/instances.js";
 import { issueRoutes } from "./routes/issues.js";
+import { membershipRoutes } from "./routes/memberships.js";
 import { projectRoutes } from "./routes/projects.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { tenantRoutes } from "./routes/tenants.js";
@@ -98,6 +99,7 @@ export function createApp(options: CreateAppOptions = {}) {
   v1.route("/me", meRoutes());
   v1.route("/", tenantRoutes());
   v1.route("/", projectRoutes());
+  v1.route("/", membershipRoutes());
   v1.route("/", credentialRoutes());
   v1.route("/", instanceRoutes());
   v1.route("/", issueRoutes());

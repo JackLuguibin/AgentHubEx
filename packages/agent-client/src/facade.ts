@@ -1,14 +1,20 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import type {
   AgentSession,
+  CreateInvitationReq,
   CreateProjectReq,
   CreateTenantReq,
+  DirectoryUser,
+  Invitation,
   Me,
   PatchProjectReq,
   PatchTenantReq,
   Project,
+  ProjectMember,
+  PutUserBindingsReq,
   Tenant,
   TenantMember,
+  UserBindings,
   Workspace,
 } from "@agenthub/domain";
 import type { Envelope } from "@agenthub/runtime-contract";
@@ -77,6 +83,81 @@ export function createFacadeClient(http: KyInstance) {
 
     async listTenantMembers(tenantId: string) {
       return http.get(`v1/tenants/${tenantId}/members`).json<Page<TenantMember>>();
+    },
+
+    async addTenantMember(tenantId: string, input: { email: string; role: string }) {
+      return http
+        .post(`v1/tenants/${tenantId}/members`, { json: input })
+        .json<TenantMember>();
+    },
+
+    async removeTenantMember(tenantId: string, userId: string) {
+      await http.delete(`v1/tenants/${tenantId}/members/${userId}`);
+    },
+
+    async createInvitation(tenantId: string, input: CreateInvitationReq) {
+      return http
+        .post(`v1/tenants/${tenantId}/invitations`, { json: input })
+        .json<Invitation>();
+    },
+
+    async listDirectoryUsers(opts: { tenantId?: string; q?: string } = {}) {
+      const searchParams = new URLSearchParams();
+      if (opts.tenantId) searchParams.set("tenantId", opts.tenantId);
+      if (opts.q) searchParams.set("q", opts.q);
+      const qs = searchParams.toString();
+      return http
+        .get(`v1/directory/users${qs ? `?${qs}` : ""}`)
+        .json<Page<DirectoryUser>>();
+    },
+
+    async listBindingCatalog() {
+      return http.get("v1/bindings/catalog").json<{
+        items: Array<{
+          tenantId: string;
+          name: string;
+          slug: string;
+          status: "active" | "suspended";
+          canEdit: boolean;
+          projects: Array<{
+            projectId: string;
+            name: string;
+            key: string;
+            archivedAt: string | null;
+          }>;
+        }>;
+      }>();
+    },
+
+    async getUserBindings(userId: string) {
+      return http.get(`v1/users/${userId}/bindings`).json<UserBindings>();
+    },
+
+    async putUserBindings(userId: string, input: PutUserBindingsReq) {
+      return http.put(`v1/users/${userId}/bindings`, { json: input }).json<UserBindings>();
+    },
+
+    async listProjectMembers(projectId: string) {
+      return http.get(`v1/projects/${projectId}/members`).json<Page<ProjectMember>>();
+    },
+
+    async addProjectMember(
+      projectId: string,
+      input: { userId?: string; email?: string; role: string },
+    ) {
+      return http
+        .post(`v1/projects/${projectId}/members`, { json: input })
+        .json<ProjectMember>();
+    },
+
+    async patchProjectMember(projectId: string, userId: string, role: string) {
+      return http
+        .patch(`v1/projects/${projectId}/members/${userId}`, { json: { role } })
+        .json<ProjectMember>();
+    },
+
+    async removeProjectMember(projectId: string, userId: string) {
+      await http.delete(`v1/projects/${projectId}/members/${userId}`);
     },
 
     async listProjects(
