@@ -94,7 +94,7 @@ LP --> P4
 | 阶段 | 交付物 | 完成定义 |
 |---|---|---|
 | P0 | monorepo、**compose.intranet**、Drizzle、JWT/RBAC、领域 CRUD、React SPA（无外链）、workbench 骨架、offline-bundle 约定 | `pnpm dev` + intranet compose；RBAC 单测；Facade 流式会话；静态检查无公网 URL |
-| P1 | external 反代 + SSE、双凭据、配置 Apply、公共空间、React Workbench MVP、看板 | 13.4 中 A1–A9 全通过 |
+| P1 | external 反代 + SSE、双凭据、配置 Apply、公共空间、React Workbench MVP、看板 | 13.4 中 **A1–A16** 与 **N1–N4**（见 [18.7](18-intranet-offline.md)）全通过 |
 | P2 | node-agent、调度、配额、自动推送/回滚、Workbench 编辑/终端增强 | managed 工作区 p95 就绪 < 120s；capabilities 驱动终端入口 |
 | P3 | worker/claude、Bundle 双引擎、LLM Proxy、计量 | 契约测试双引擎通过；容器内无 Provider Key |
 | P4 | mTLS、KMS、RLS、OTel 告警（数据面保持 Docker，见 ADR-002） | 渗透测试无高危；告警演练通过 |
@@ -103,7 +103,7 @@ LP --> P4
 
 | ID | 场景 | 步骤 | 期望 |
 |---|---|---|---|
-| A1 | 远程登记即连 | 他机部署 opencode serve → 门户登记 → 项目绑定 → 成员进入 Workbench | 可对话；浏览器网络面板中无远程地址与节点密码 |
+| A1 | 远程登记即连 | 他机部署 opencode serve → 门户登记（`isolation=dedicated`，ADR-013）→ 项目绑定 → 成员进入 Workbench | 可对话；浏览器网络面板中无远程地址与节点密码；历史消息刷新后仍在（Hub `session_messages`） |
 | A2 | 配置下发 | 项目 Bundle 加 1 Agent + 1 MCP + 1 Skill + AGENTS.md → 发布 → 同步 | 会话中能看到并使用；ApplyJob=succeeded |
 | A3 | 回滚 | 回滚到上一 revision | 受管文件恢复；用户自建文件不受影响 |
 | A4 | 公共空间 | 上传 docs/spec.md → 同步 | 工作区 `project-common/docs/spec.md` 存在；Agent 写入被拒 |
@@ -116,6 +116,10 @@ LP --> P4
 | A11 | 成员移除 | 移除 B | B 的活跃会话 abort；B 无法再进入工作区 |
 | A12 | UI / 通道 | 代码审查 | 全站 React 单 SPA；shadcn 底层；会话 SSE 仅 Facade；文件走 agent 白名单；无裸 fetch |
 | N1–N4 | 内网 / 离线 | 见 [18.7](18-intranet-offline.md) | 断公网可登录开会话；无浏览器公网请求；Worker allowlist；offline-bundle 可装 |
+| A13 | 租户停用 | platform.admin suspend 租户 T1 | T1 成员无法开会话/发消息（409 `TENANT_SUSPENDED`）；进行中会话 abort；可切换到其他 active 租户 |
+| A14 | 项目归档 / 最后 owner | 归档项目；尝试移除最后一名 project.owner / tenant.owner | 归档后拒开会话（409 `PROJECT_ARCHIVED`）；移除最后 owner → 409 |
+| A15 | SSE 游标过期 | 制造 Stream 溢出或伪造过旧 Last-Event-ID | 收到 `SSE_CURSOR_STALE`；messages 对齐后可继续流式 |
+| A16 | 日 token 配额 | 将租户 `tokensPerDay` 调极低并打满 | 新 message/session 429 `QUOTA_EXCEEDED`；进行中生成不强制 abort |
 
 ## 13.5 明确不做（首版）
 
@@ -126,8 +130,20 @@ LP --> P4
 - 完整 Jira 工作流、燃尽图；
 - SSH 手改远程 `opencode.json`；
 - 多人共容器、公共空间实时协同、会话分享、前端持久化 Key、计费收银台。
+- 站内通知中心 / 邮件通知（密码重置 SMTP 除外）；**P2+** 再做（见 13.7）。
 
-## 13.6 风险登记
+## 13.6 测试与 CI 门禁
+
+| 层 | 工具 | 覆盖 |
+|---|---|---|
+| 单元 | Vitest | domain zod、RBAC、Bundle merge、common-fs 路径 |
+| 契约 | 见 [11.8](11-runtime-contract.md) | 双引擎 + external |
+| API 集成 | Vitest + testcontainers（PG/Redis） | IDOR 矩阵：每资源 × {同租户他人, 跨租户, 无成员} → 404/403 |
+| 前端 | Testing Library + MSW；Playwright e2e | 登录→开会话→delta→权限；A10 阻断路径 |
+| 静态 | ESLint（禁裸 SQL/禁公网 URL）；OpenAPI breaking diff；license/NOTICE 抽检 | intranet 友好 |
+| 产物 | offline-bundle 构建 job（可夜间） | N4 安装脚本 dry-run |
+
+## 13.7 风险登记
 
 | 风险 | 影响 | 缓解 |
 |---|---|---|

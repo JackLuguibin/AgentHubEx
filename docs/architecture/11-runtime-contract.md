@@ -214,4 +214,12 @@ note over PB : 超时 (默认 10min) → deny 并发 permission_resolved(timeout
 
 ## 11.8 契约测试
 
-`packages/runtime-contract/test/conformance.ts`：对任一实现跑相同用例（创建会话、发消息收到 delta+result、工具调用、权限 ask/allow、abort、凭据注入后可调用模型（mock provider）、Apply 后 MCP 可见）。CI 中对 `worker/opencode`、`worker/claude`、本地 `opencode serve` 三者执行。
+`packages/runtime-contract/test/conformance.ts`：对任一实现跑相同用例（创建会话、发消息收到 delta+result、工具调用、权限 ask/allow、abort、凭据注入后可调用模型（**mock provider**，禁止 CI 打公网）、Apply 后 MCP 可见）。
+
+| 被测实现 | CI job | Fixture |
+|---|---|---|
+| `adapter/opencode` + 本地 `opencode serve` | `contract-opencode` | 固定 upstream 版本；录制最小 SSE |
+| `worker/claude` | `contract-claude` | mock Anthropic；PermissionBridge 时钟可注入 |
+| `worker/opencode` | `contract-worker-oc` | 同镜像 digest 与交付物 |
+
+失败即阻断合并。前端只断言 Envelope，不测上游私有字段。

@@ -112,3 +112,9 @@ RBAC / 多租户中间件为**领域逻辑**（薄封装），加密、队列、
 4. 安全审计 / 供应链（lockfile）是否可接受？  
 5. 是否可用 20 行业务代码 + 现有库替代？  
 6. **内网友好**（ADR-011）：无公网 CDN、无强制电话回家？  
+
+## 17.8 许可证与供应链（交付）
+
+- 仓库维护根级 `NOTICE`（第三方归属）；新增依赖更新 NOTICE。  
+- CI 建议：`license-checker` / `pnpm licenses` 对照允许列表（MIT/Apache-2.0/BSD/ISC/MPL-2.0 等）；AGPL（如 MinIO）须在客户交付说明中单列，不允许则换 Garage/SeaweedFS（另 ADR）。  
+- 发布 offline-bundle 时附 SBOM（CycloneDX 或 SPDX JSON）可选；intranet 不强制联网扫描。  

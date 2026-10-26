@@ -156,3 +156,15 @@ P -> PG : UsageRecord(credentialSource, credentialId, tokens, cost)
 - 个人 Key 消耗：`credential_source='user'` 按 user 汇总（仅本人可见）。
 - 项目 Key 消耗：`credential_source='project'` 按 project/user 汇总（owner 可见）。
 - Phase 1–2 数据来源：解析 OpenCode/Claude 事件中的 usage 字段（尽力而为）；Phase 3 以 Proxy 为准。
+- **租户日 token 配额**与超限硬拦语义见 [04 §4.8.1](04-gateway-facade.md)（与本表同源累加）。
+- 首版**只计量不结算**：提供只读 usage 聚合 API（见 [16](16-api-schema.md)），不做收银台/发票。
+
+## 6.8 KEK / 凭据运维轮换（Runbook 摘要）
+
+| 步骤 | 动作 |
+|---|---|
+| 1 | 生成新 KEK（Phase1：新 `AGENTHUB_MASTER_KEY_V{n}`；Phase4：KMS 新密钥版本），配置**双窗口**（旧+新均可 unwrap） |
+| 2 | `hub-jobs` 跑 `ReencryptCredentialsJob`：按 `key_version` 惰性或全表重包 DEK/密文，写新 `key_version` |
+| 3 | 监控 `credentials.key_version` 分布；旧版本归零后移除旧 KEK |
+| 4 | 回滚：双窗口未关闭前可切回旧 KEK；已重加密行仍可用新 KEK 读 |
+| 同步 | 节点 mTLS 证书续期、sync token rotate、HubApiKey 轮换检查表见 [12 §12.8](12-security-observability-deployment.md) |

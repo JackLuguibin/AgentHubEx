@@ -157,8 +157,8 @@ C -> C : resolve + render → hash
 alt hash == workspace.appliedRevisionHash
   C --> T : noop
 else
-  C -> PG : INSERT apply_jobs(status=queued)
-  C -> Q : enqueue (去重 key=workspaceId)
+  C -> PG : INSERT apply_jobs(status=queued)\n+ jobs_outbox 同事务（至少一次，见 15.13.1）
+  C -> Q : hub-jobs 发布到 BullMQ (jobId=outbox.id)
 end
 Q -> W : job
 W -> PG : status=running

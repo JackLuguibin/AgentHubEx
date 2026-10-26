@@ -135,3 +135,7 @@ end
 | GET | `/v1/projects/{p}/board/stats?range=week` | todo/in_progress/done 计数、本周新增/关闭 |
 
 **可见性**：Issue 对项目成员可见；但关联会话列表只对会话 owner 显示可打开链接，其他人看到「由 X 的会话处理」元数据。
+
+## 9.7 通知边界（首版）
+
+看板/评审「通知 owner」在首版仅指 **UI 角标或列表未读态的本地提示**（可选 Redis 计数），**不**建站内信箱、不发邮件/Webhook（Git webhook 除外，见 [14](14-workspace-git.md)）。完整通知中心标为 P2+（[13.5](13-roadmap-acceptance.md)）。

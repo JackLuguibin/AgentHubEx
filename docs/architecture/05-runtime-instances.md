@@ -21,20 +21,27 @@ participant "hub-api\nInstanceRegistry" as H
 participant "远程 opencode serve" as R
 database PG
 
-Admin -> S : 添加远程实例 (name, baseUrl, user/pass, labels, isolation)
-S -> H : POST /v1/admin/instances/test {baseUrl, auth}
+Admin -> S : 添加远程实例 (name, baseUrl, user/pass, labels, isolation, assignedProjectIds)
+S -> H : POST /v1/tenants/{t}/instances/test {baseUrl, auth}
 H -> H : SSRF 校验（禁止 169.254.*、localhost 除非白名单；DNS 解析后再校验）
 H -> R : GET /global/health (Basic Auth)
 R --> H : 200 {version}
 H -> R : GET /project (可选)
 H --> S : 探测结果 {ok, version, latencyMs}
 Admin -> S : 保存
-S -> H : POST /v1/admin/instances
-H -> PG : INSERT runtime_instances(mode=external, auth 加密, health=healthy)
+S -> H : POST /v1/tenants/{t}/instances
+H -> PG : INSERT runtime_instances(mode=external, isolation, assigned_project_ids, auth 加密, health=healthy)
+note right of H
+  ADR-013：无 boundUserId。
+  dedicated=推荐；shared 仅演示且单活跃用户；
+  intranet 交付禁止新建 shared。
+end note
 H -> H : 生成 sync token（若勾选 hasSyncAgent）
 H --> S : 实例 + sync 安装命令（token 仅显示一次）
 @enduml
 ```
+
+> 控制面路径以 [16 §16.6](16-api-schema.md) 为准：`/v1/tenants/{t}/instances`。`platform.admin` 可经同一租户作用域操作；无独立 `/v1/admin/instances`（避免双路径）。
 
 ## 5.3 实例健康状态机
 
@@ -114,11 +121,22 @@ else
   :按 score 排序\nscore = 0.5*cpu空闲 + 0.3*mem空闲 + 0.2*(1-workspace数/上限);
   :取最高分;
 endif
-:Redis 分布式锁 lock:node:{id} 预占容量;
+:Redis 分布式锁 lock:node:{id} 预占容量\n(TTL 90s，持锁写 preclaim);
 :调用 Node Agent POST /workspaces;
 stop
 @enduml
 ```
+
+### 5.5.1 调度竞态与节点排水
+
+| 场景 | 行为 |
+|---|---|
+| 多 hub-api 同时选同节点 | `SET lock:node:{id} NX EX 90`；失败者重算候选 |
+| 预占超时 | 90s 内未确认 `workspace` 行/容器 → 释放容量计数；workspace → `failed` 可重试 |
+| 节点 `draining` | heartbeat 或 admin 设 status；调度跳过；已有工作区可 stop/start |
+| heartbeat 对账 | Hub 有、节点 `missing` → 标 workspace `unavailable` 并告警；节点多出未知容器 → 记审计，不自动删（防误杀） |
+| 调度失败 | `NO_CAPACITY`：workspace.failed + 指标告警；客户端 `WORKSPACE_NOT_READY` + `retryAfter` |
+| 版本协商 | heartbeat 上报 `agentVersion`；低于 `minAgentVersion` → 节点标 `degraded`，拒新 create |
 
 ## 5.6 Node Agent 注册与心跳
 
@@ -205,4 +223,12 @@ iptables -A DOCKER-USER -s 172.30.0.0/16 -j DROP
 # internet-lab：省略步骤 2–3，仅保留步骤 1
 ```
 
-**allowlist 来源**：节点环境变量 `EGRESS_ALLOWLIST`（CIDR 列表）+ 项目/租户配置的 LLM `baseUrl` / Git host 经 Hub 下发到 node-agent（见 [18.3](18-intranet-offline.md)）。  
+**allowlist 来源**：节点环境变量 `EGRESS_ALLOWLIST`（CIDR 列表）+ 项目/租户配置的 LLM `baseUrl` / Git host 经 Hub 下发到 node-agent（见 [18.3](18-intranet-offline.md)）。
+
+## 5.9 Node Agent 协议细节
+
+- **注册**：bootstrap token 一次性、1h；CSR → 签发给节点客户端证（默认 90 天）；响应含 `caBundle`。
+- **续期**：证剩余不足 14 天时 Hub 在 heartbeat 下发 `renew_cert_hint`；agent `POST /v1/nodes/cert/renew` 提交新 CSR。
+- **命令枚举**：`create_workspace` / `start_workspace` / `stop_workspace` / `delete_workspace` / `drain` / `renew_cert_hint`（字段见 [16.13](16-api-schema.md)）。
+- **错误码（agent→Hub）**：`BOOTSTRAP_INVALID`、`CERT_EXPIRED`、`VERSION_UNSUPPORTED`、`DOCKER_ERROR`、`CAPACITY_EXCEEDED`、`WORKSPACE_NOT_FOUND`。
+- **时钟**：`wallTime` 与 Hub 差超过 60s 只告警；mTLS 仍以证书为准。

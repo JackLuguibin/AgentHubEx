@@ -125,7 +125,7 @@ participant "Runtime /file" as R
 database PG
 
 Dev -> S : 在工作区选择文件 → 「提交到公共空间」 (目标路径)
-S -> H : POST /v1/projects/{p}/common/promote {workspaceId, srcPaths[], destPrefix}
+S -> H : POST /v1/projects/{p}/common/promote\n{workspaceId, items:[{srcPath,destPath}]}
 H -> H : authz(common.write) + workspace.own
 H -> R : GET /file/content (逐个读取)
 alt project.promoteRequiresReview

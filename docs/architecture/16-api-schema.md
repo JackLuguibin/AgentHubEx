@@ -10,12 +10,32 @@
 | 编码 | JSON UTF-8；字段 camelCase；时间 ISO-8601 UTC（`2026-11-02T08:00:00.000Z`） |
 | ID | UUIDv7 字符串；Issue 对外另有 `key`（`PROJ-12`），路径中 `{issueId}` 两者均可 |
 | 鉴权 | `Authorization: Bearer <accessJwt | ahk_...>` |
-| 幂等 | 创建类 POST 支持 `Idempotency-Key`（24h，Redis） |
+| 幂等 | 见下方 **幂等矩阵**；键存 Redis 24h，值=首次响应摘要 |
 | 并发控制 | 可变资源返回 `etag`（= `updatedAt` 哈希）；PATCH 可带 `If-Match` |
 | 分页 | 游标：`?limit=50&cursor=<opaque>` → `{ items, nextCursor: string \| null }`；`limit` 1–200 |
 | 排序 | `?sort=createdAt:desc`（每个列表声明允许字段） |
 | 秘密字段 | 只出现在请求中（`secret`），任何响应都不会返回 |
+| OpenAPI | CI：`pnpm openapi:gen` 产出 `openapi.json`；与 main 做 breaking-change diff 门禁；前端只 import `packages/domain` |
 | 错误 | 见 16.15 |
+
+### 幂等矩阵
+
+| 端点 | Idempotency-Key | 重试安全 | 说明 |
+|---|:-:|---|---|
+| `POST .../sessions` | **必须** | 是 | 同键返回同一 session |
+| `POST .../sessions/{id}/messages` | 建议 | 是 | 同键不重复入队上游 |
+| `POST .../projects` / `POST .../issues` | **必须** | 是 | |
+| `POST .../common/upload`（完成提交） | **必须** | 是 | 与 checksum 对齐 |
+| `POST .../bundles/{b}/publish` | **必须** | 是 | 同键不产生双 revision |
+| `POST .../config/apply` / `sync-config` / `sync-common` | **必须** | 是 | 同键返回同一 ApplyJob id |
+| `POST .../workspaces/{w}/repos/{r}/seed` | **必须** | 是 | |
+| `POST .../sessions/{id}/git/pull-request` | **必须** | 是 | 防重复 PR |
+| `POST .../credentials` | **必须** | 是 | |
+| `POST .../tenants/{t}/instances` | **必须** | 是 | |
+| `POST .../archive` / `suspend` / `abort` | 建议 | 是 | 状态机幂等 |
+| GET / PATCH（带 If-Match） | 否 | GET 是；PATCH 靠 etag | |
+
+BullMQ 任务与 HTTP 幂等：业务写库 + `jobs_outbox` 同事务；消费者用 `jobId=outbox.id` 去重（见 [15.13.1](15-database-ddl.md)）。
 
 ```ts
 type Uuid = string            // uuidv7
@@ -70,17 +90,20 @@ type Tenant = {
 }
 type TenantQuota = {
   maxConcurrentSessionsPerUser: number   // 默认 5
-  maxActiveWorkspaces: number            // 默认 50
-  tokensPerDay?: number
+  maxActiveWorkspaces: number            // 默认 50（租户合计，含双引擎工作区）
+  tokensPerDay?: number                  // 可选；未设=不限；超限见 04 §4.8.1
 }
 // POST  /v1/admin/tenants        (platform.admin) { slug, name, ownerEmail } → Tenant
 // GET   /v1/tenants/{t}          → Tenant
 // PATCH /v1/tenants/{t}          { name?, quota?, settings? } → Tenant
+// POST  /v1/admin/tenants/{t}/suspend   { reason? } → Tenant   // status=suspended；级联见 03 §3.7
+// POST  /v1/admin/tenants/{t}/unsuspend → Tenant
 
 type TenantMember = { userId: Uuid; email: string; displayName: string; role: TenantRole; joinedAt: Timestamp }
 // GET    /v1/tenants/{t}/members?q=&role= → Page<TenantMember>
 // PATCH  /v1/tenants/{t}/members/{userId} { role } → TenantMember
 // DELETE /v1/tenants/{t}/members/{userId} → 204
+//   规则：不可移除最后一名 tenant.owner（409 CONFLICT）；级联清该用户在本租户全部 project_memberships + RevokeWorkspaceJob
 
 type CreateInvitationReq = {
   email: string
@@ -105,6 +128,7 @@ type Project = {
   commonSyncPolicy: 'on_workspace_start' | 'on_common_publish'
   settings: ProjectSettings
   myRole: ProjectRole | null        // 当前用户角色
+  archivedAt: Timestamp | null
   stats?: { todo: number; inProgress: number; inReview: number; done: number }
   createdAt: Timestamp; updatedAt: Timestamp; etag: string
 }
@@ -122,13 +146,15 @@ type ProjectSettings = {
 // POST  /v1/tenants/{t}/projects { key, name, description?, credentialPolicy?, settings? } → Project
 // GET   /v1/projects/{p} → Project
 // PATCH /v1/projects/{p} Partial<{name, description, credentialPolicy, commonSyncPolicy, settings}> → Project
-// POST  /v1/projects/{p}/archive → 204
+// POST  /v1/projects/{p}/archive → Project     // 设 archivedAt；级联见 03 §3.7
+// POST  /v1/projects/{p}/unarchive → Project   // 清 archivedAt；租户须为 active
 
 type ProjectMember = { userId: Uuid; email: string; displayName: string; role: ProjectRole; workspaceStatus?: WorkspaceStatus }
 // GET    /v1/projects/{p}/members → Page<ProjectMember>
 // POST   /v1/projects/{p}/members { userId, role } → ProjectMember
 // PATCH  /v1/projects/{p}/members/{userId} { role } → ProjectMember
 // DELETE /v1/projects/{p}/members/{userId}?purgeWorkspace=false → 204
+//   规则：不可移除最后一名 project.owner（409 CONFLICT）
 
 // PUT /v1/me/projects/{p}/preferences
 type MemberPrefs = { preferredCredential?: { source: CredentialSource; id: Uuid } | null; preferredRuntimeType?: RuntimeType }
@@ -334,7 +360,12 @@ type Manifest = {
   permission?: PermissionMatrix; model?: string
   includeCommonAgentsMd?: boolean
 }
-type Bundle = { id: Uuid; scope: 'tenant' | 'project' | 'user'; scopeId: Uuid; name: string; draft: Manifest; latestVersion: number | null; updatedAt: Timestamp; etag: string }
+type Bundle = {
+  id: Uuid
+  scope: 'platform' | 'tenant' | 'project' | 'user'
+  scopeId: Uuid | null   // platform 时为 null
+  name: string; draft: Manifest; latestVersion: number | null; updatedAt: Timestamp; etag: string
+}
 type Revision = { id: Uuid; bundleId: Uuid; version: number; state: 'published' | 'archived'; contentHash: string; changelog?: string; publishedBy: Uuid; publishedAt: Timestamp }
 
 // GET/POST /v1/projects/{p}/bundles, /v1/tenants/{t}/bundles  { name } → Bundle
@@ -467,12 +498,61 @@ type CreatePrRes = { url: string; number: number; branch: string; pushed: boolea
 
 | 调用方 | 路径 | 认证 | 载荷 |
 |---|---|---|---|
-| node-agent | `POST /v1/nodes/register` | bootstrap token | `{token, csr, capacity, labels, agentVersion}` → `{nodeId, cert, caBundle}` |
-| node-agent | `POST /v1/nodes/heartbeat` | mTLS | `{used, workspaces:[{id, state}]}` → `{commands:[]}` |
+| node-agent | `POST /v1/nodes/register` | bootstrap token | 见下方 Node 协议 |
+| node-agent | `POST /v1/nodes/heartbeat` | mTLS | 见下方 |
+| node-agent | `POST /v1/nodes/cert/renew` | mTLS | `{csr}` → `{cert, notAfter}` |
 | agenthub-sync | `GET /v1/sync/tasks?wait=30` | sync token | → `{tasks:[{id, type:'apply'|'common'|'git_seed', manifest, urls, signature}]}` |
 | agenthub-sync | `POST /v1/sync/tasks/{id}/result` | sync token | `{status, manifest?, error?}` |
 | worker | `POST /v1/internal/workspaces/{w}/git-credential` | 实例 token | `{host, path, op}` → `{username, password, expiresAt}` |
 | Git 平台 | `POST /v1/webhooks/git/{provider}` | HMAC | 平台原始 payload |
+
+### Node Agent 协议字段（摘要；细节见 [05 §5.9](05-runtime-instances.md)）
+
+```ts
+type NodeRegisterReq = {
+  token: string
+  csr: string                    // PEM
+  capacity: { cpu: number; memMb: number; diskGb: number; maxWorkspaces: number }
+  labels: Record<string, string>
+  agentVersion: string           // semver；与 Hub 协商 minAgentVersion
+  hostname?: string
+}
+type NodeRegisterRes = { nodeId: Uuid; cert: string; caBundle: string; notAfter: Timestamp }
+
+type NodeHeartbeatReq = {
+  used: { cpu: number; memMb: number; diskGb: number; workspaces: number }
+  workspaces: { id: Uuid; state: 'running' | 'stopped' | 'missing'; containerId?: string }[]
+  agentVersion: string
+  wallTime: Timestamp            // 时钟漂移 > 60s → Hub 记 warning，不拒心跳
+}
+type NodeCommand =
+  | { type: 'create_workspace'; workspaceId: Uuid; spec: unknown }
+  | { type: 'start_workspace' | 'stop_workspace' | 'delete_workspace'; workspaceId: Uuid; purgeVolume?: boolean }
+  | { type: 'drain' }            // 拒新调度；完成现有后可 offline
+  | { type: 'renew_cert_hint' }
+type NodeHeartbeatRes = { commands: NodeCommand[]; minAgentVersion?: string }
+```
+
+## 16.13.1 审计查询 / 导出
+
+```ts
+// GET /v1/tenants/{t}/audit?actor=&action=&from=&to=&cursor=
+type AuditEntry = {
+  id: Uuid; at: Timestamp; actorId: Uuid | null; actorType: string
+  action: string; targetType: string; targetId: string | null
+  meta: Record<string, unknown>; ip?: string
+}
+// GET /v1/tenants/{t}/audit/export?from=&to=&format=ndjson  → 202 { jobId } | 200 stream
+// 保留期默认 365 天（租户 settings.auditRetentionDays）；platform.admin 可查跨租户 /v1/admin/audit
+```
+
+## 16.13.2 用量只读（不计费）
+
+```ts
+// GET /v1/tenants/{t}/usage?from=&to=&groupBy=project|user|day
+// GET /v1/projects/{p}/usage?from=&to=
+type UsageBucket = { key: string; inputTokens: number; outputTokens: number; costMicros?: number }
+```
 
 ## 16.14 示例
 
@@ -525,6 +605,8 @@ type ErrorRes = { error: { code: string; message: string; requestId: string; det
 | 422 | `INVALID_TRANSITION` | Issue 状态迁移非法 |
 | 423 | `ACCOUNT_LOCKED` | 登录失败锁定 |
 | 429 | `RATE_LIMITED` / `QUOTA_EXCEEDED`（`details.quota`） | 带 `Retry-After` |
+| 409 | `TENANT_SUSPENDED` / `PROJECT_ARCHIVED` | 生命周期门禁 |
+| 409 | `SSE_CURSOR_STALE` | 亦可经 SSE `error` 事件投递（见 04 §4.4.1） |
 | 501 | `NOT_SUPPORTED_BY_RUNTIME` | Claude worker 缺能力 |
 | 502 | `UPSTREAM_UNAVAILABLE` | |
 | 504 | `UPSTREAM_TIMEOUT` | |

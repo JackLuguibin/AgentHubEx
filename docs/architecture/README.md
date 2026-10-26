@@ -6,7 +6,7 @@
 
 | # | 文档 | 内容 |
 |---|---|---|
-| 00 | [00-decisions.md](00-decisions.md) | ADR：…008 前端、009 Drizzle、010 开源依赖、**011 内网/离线** |
+| 00 | [00-decisions.md](00-decisions.md) | ADR：…011 内网/离线、**012 工作区基数**、**013 external 绑定**、**014 tenant.admin** |
 | 01 | [01-system-overview.md](01-system-overview.md) | 系统上下文、容器视图、组件分层、仓库与包依赖 |
 | 02 | [02-domain-model.md](02-domain-model.md) | 领域模型、数据库表设计、索引、多租户约束 |
 | 03 | [03-auth-rbac.md](03-auth-rbac.md) | 认证、JWT、Hub API Key、RBAC 权限矩阵与判定流程 |
@@ -24,12 +24,12 @@
 | 15 | [15-database-ddl.md](15-database-ddl.md) | PG DDL 可读对照（权威为 Drizzle schema）、索引、关键事务、RLS 预留 |
 | 16 | [16-api-schema.md](16-api-schema.md) | 全部对外/内部 API 的字段级 Schema、示例、错误码 |
 | 17 | [17-libraries.md](17-libraries.md) | 各层流行库锁定清单（ADR-010） |
-| 18 | [18-intranet-offline.md](18-intranet-offline.md) | **内网 / 离线部署**（默认交付形态，ADR-011） |
+| 18 | [18-intranet-offline.md](18-intranet-offline.md) | **内网 / 离线部署**、升级回滚、环境变量清单（ADR-011） |
 
 ## 核心原则速览
 
 1. **Hub 是唯一入口**：浏览器只访问 Hub；节点地址、节点密码、Provider Key 全部留在控制面。
-2. **一人一工作区一实例**：`Project × User → Workspace → RuntimeInstance`，强隔离。
+2. **一人一引擎一工作区一实例**：`Project × User × RuntimeType → Workspace → RuntimeInstance`（ADR-012），强隔离。
 3. **门户是配置 SoT**：Agent/MCP/Skill/AGENTS.md 由 Hub 合并渲染后下发。
 4. **双引擎对等**：OpenCode 与 Claude Agent SDK 实现同一 `runtime-contract`。
 5. **公开开源 + 少造轮子**：技术栈用公开 OSI 许可组件（见 [17](17-libraries.md)）；不闭源硬依赖；不自研 DS/队列/ORM/JWT；不 vendor OpenCode Web。

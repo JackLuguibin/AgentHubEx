@@ -69,7 +69,7 @@ System_Boundary(dp, "Data Plane") {
 Rel(user, shell, "HTTPS")
 Rel(user, wb, "HTTPS")
 Rel(shell, api, "REST /v1", "JWT")
-Rel(wb, api, "/v1/workspaces/{id}/agent/*", "JWT + SSE")
+Rel(wb, api, "Facade SSE /v1/sessions/*；文件走 /v1/workspaces/{id}/agent/*", "JWT")
 Rel(api, pg, "Drizzle ORM")
 Rel(api, redis, "")
 Rel(api, s3, "S3 API")

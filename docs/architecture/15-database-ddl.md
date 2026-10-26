@@ -537,6 +537,39 @@ CREATE TABLE session_branches (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (session_id, repo_id)
 );
+
+-- Hub 侧消息权威存储（见 04 §4.9）；GET /messages 只读本表
+CREATE TABLE session_messages (
+  id            uuid PRIMARY KEY,
+  tenant_id     uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  session_id    uuid NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+  role          text NOT NULL CHECK (role IN ('user','assistant','system','tool')),
+  parts         jsonb NOT NULL DEFAULT '[]',
+  upstream_ref  text,                          -- 上游 message id（可空）
+  seq           bigint,                        -- 与 Envelope.seq 对齐（可空：user 刚写入）
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_session_messages_tenant_id UNIQUE (tenant_id, id)
+);
+CREATE INDEX ix_session_messages_session ON session_messages(session_id, created_at);
+CREATE UNIQUE INDEX uq_session_messages_seq ON session_messages(session_id, seq)
+  WHERE seq IS NOT NULL;
+
+-- 事务发件箱：与业务写同事务提交，hub-jobs 至少一次投递到 BullMQ
+CREATE TABLE jobs_outbox (
+  id            uuid PRIMARY KEY,
+  tenant_id     uuid REFERENCES tenants(id) ON DELETE CASCADE,
+  job_type      text NOT NULL,                 -- revoke_workspace | apply | common_sync | abort_sessions | ...
+  payload       jsonb NOT NULL,
+  status        text NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending','published','failed')),
+  attempts      int NOT NULL DEFAULT 0,
+  available_at  timestamptz NOT NULL DEFAULT now(),
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  published_at  timestamptz,
+  last_error    text
+);
+CREATE INDEX ix_jobs_outbox_poll ON jobs_outbox(status, available_at)
+  WHERE status = 'pending';
 ```
 
 ## 15.9 配置中心
@@ -790,7 +823,15 @@ CREATE TABLE usage_records_2026_11 PARTITION OF usage_records
 | 公共空间写入 | `SELECT ... FROM projects FOR UPDATE` 检查配额 → upsert 文件 + 插版本 + 更新 used_bytes |
 | 懒创建工作区 | `INSERT ... ON CONFLICT (project_id, owner_user_id, runtime_type) WHERE ... DO NOTHING RETURNING`，冲突则再查 |
 | 看板拖拽 | `UPDATE project_issues SET status, rank WHERE id=$1 AND updated_at=$expected` 影响 0 行 → 409 |
-| 成员移除 | 删 membership + workspace.status=revoked + 入队 RevokeWorkspaceJob（outbox 表或同事务写 `jobs_outbox`） |
+| 成员移除 | 删 membership + workspace.status=revoked + 同事务写 `jobs_outbox`（RevokeWorkspaceJob） |
+| 租户停用 / 项目归档 | 更新 status/archived_at + outbox `AbortTenantSessions` / `AbortProjectSessions` |
+| 消息落库 | user 消息与 INSERT session 同请求事务；assistant/tool 由 SSE 归一路径幂等 upsert（`session_id,seq`） |
+
+### 15.13.1 outbox 投递语义
+
+- **至少一次**：`hub-jobs` 轮询 `pending` → 入 BullMQ → 成功标 `published`；消费者必须幂等（以 `job_type+payload` 业务键去重）。
+- 失败：`attempts++`，指数退避改 `available_at`；超过阈值告警，人工可重放。
+- 禁止只入 BullMQ 不写 outbox（进程崩溃会丢任务）。
 
 ## 15.14 RLS（Phase 4 预留）
 

@@ -189,11 +189,50 @@ W1 --> GIT : allowlist
 - 数据面保持 Docker + node-agent（ADR-002）；控制面可跑在 K8s 或 compose，二者不耦合。K8s 工作区 provider 不在规划内，如有需要另开 ADR。
 - **默认 intranet**：Worker **不**默认访问公网；见 ADR-003/011 与 [18](18-intranet-offline.md)。
 
-## 12.6 备份与恢复
+## 12.6 备份与恢复（DR Runbook）
 
 | 数据 | 方式 | RPO / RTO |
 |---|---|---|
 | PostgreSQL | WAL 归档 + 每日全量 | 5 min / 1 h |
-| S3 公共空间 | 版本化 + 跨区复制 | 15 min |
+| S3 / MinIO 公共空间 | 版本化 + 可选跨机房复制 | 15 min / 2 h |
+| Redis | 不作为 SoT；可丢 | 队列靠 `jobs_outbox` 重建；SSE Stream 丢失 → 客户端 messages resync |
 | 工作区卷 | 不承诺（代码以 git 为准）；可选每日快照 | — |
-| KEK | KMS 托管，禁止导出 | — |
+| KEK | Phase1 离线保险箱；Phase4 KMS，禁止导出 | — |
+
+**恢复步骤（intranet 单机基线）**
+
+1. 停 hub-api / hub-jobs（保留 Postgres/MinIO）。  
+2. 从最近全量 + WAL 恢复 PG 至目标时间点；校验 `drizzle` migration 版本。  
+3. 恢复 MinIO bucket（`common` / `bundles`）；用校验和抽检若干对象。  
+4. Redis 空启即可；`hub-jobs` 启动后扫描 `jobs_outbox` 中 `pending`/`failed` 重放。  
+5. 起 hub-api；抽检登录、开会话、公共文件读取。  
+6. **演练频率**：每季度至少一次；记录实际 RTO。
+
+**一致性注意**：PG 与 MinIO 无跨系统事务；恢复后若对象缺失，CommonSpace API 返回可识别错误并允许从版本列表修复。升级失败回滚见 [18.9](18-intranet-offline.md)。
+
+## 12.7 容量与非功能基线（首版假设）
+
+| 项 | 目标 |
+|---|---|
+| 单租户活跃用户 | ≤ 100（intranet 小集群） |
+| 并发 SSE（全站） | ≤ 500；单用户 ≤ 10 |
+| hub-api | 2–4 CPU / 4–8 GiB × 实例数；无会话粘性 |
+| 单节点最大工作区容器 | ≤ 40（默认规格 2CPU/4GiB 时按内存估） |
+| 压测场景 | 登录+看板轮询；开会话+流式 1k token；IDOR 矩阵；Apply 突发 |
+
+## 12.8 密钥与证书轮换检查表
+
+| 密钥 | 周期建议 | 动作 |
+|---|---|---|
+| `AGENTHUB_MASTER_KEY`（KEK） | 按合规；变更时双窗口 | 见 [06 §6.8](06-credentials.md) |
+| 节点 mTLS 客户端证 | 90 天；剩余不足 14 天续期 | [05 §5.9](05-runtime-instances.md) |
+| sync token | 泄露即轮换；建议 180 天 | `POST /v1/instances/{id}/sync-token/rotate` |
+| HubApiKey | 按项目；泄露即删 | 用户自助轮换 |
+| JWT 签名密钥 | 双密钥 JWKS 窗口 | 滚动 `AGENTHUB_JWT_KEYS` |
+| Git webhook HMAC | 变更时双边同步 | |
+
+## 12.9 HA 要点（Phase 4）
+
+- hub-api 无状态水平扩展；`hub-jobs` 多副本靠 BullMQ 竞争消费者，**不**另做 leader 选举。  
+- 分区维护 / 定时扫 outbox 用 BullMQ repeatable job + 锁。  
+- PG 主从；脑裂时应用只写主；SSE 不依赖粘性（Redis Stream）。

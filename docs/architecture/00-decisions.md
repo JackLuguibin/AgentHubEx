@@ -15,6 +15,9 @@
 | 009 | 数据访问 | **Drizzle ORM**；schema/迁移为 SoT；业务代码禁止手写 SQL 字符串 | Accepted | [15](15-database-ddl.md), [02](02-domain-model.md) |
 | 010 | 依赖策略 | **公开开源优先**（OSI 许可、可 npm/镜像获取）；成熟流行；自研仅领域组合；见 [17](17-libraries.md) | Accepted | [17](17-libraries.md) |
 | 011 | 部署网络 | **内网优先 / 可空气隔离**；默认交付档 intranet；详见 [18](18-intranet-offline.md) | Accepted | [18](18-intranet-offline.md), [12](12-security-observability-deployment.md) |
+| 012 | 工作区基数 | `Project × User × RuntimeType → Workspace`（双引擎可两套） | Accepted | [02](02-domain-model.md), [05](05-runtime-instances.md), [15](15-database-ddl.md) |
+| 013 | external 绑定 | 不强制 `boundUserId`；用 `isolation` + `assignedProjectIds`；`shared` 仅演示 | Accepted | [05](05-runtime-instances.md), [16](16-api-schema.md) |
+| 014 | tenant.admin / 角色名 | 管理面 ≡ project.owner；平台角色统一 `platform.admin` | Accepted | [03](03-auth-rbac.md) |
 
 ## ADR-001 登录方式
 
@@ -80,3 +83,31 @@
   4. 前端资源全部自托管；默认关闭对外遥测/升级检查。
   5. Agent 出网按 ADR-003 内网档（默认拒绝 + allowlist）。
 - **后果**：交付物含 `compose.intranet.yml` 与 offline-bundle 手册；验收见 [18.7](18-intranet-offline.md)。
+
+## ADR-012 工作区基数（按引擎分叉）
+
+- **背景**：平台对等调度 OpenCode 与 Claude；若强制「每成员仅一个 Workspace」，切换引擎需销毁/重建卷与实例，体验差。
+- **决策**：
+  1. 基数公式为 **`Project × User × RuntimeType → Workspace → RuntimeInstance`**（一人可有最多两套个人工作区）。
+  2. DDL 唯一键：`uq(project_id, owner_user_id, runtime_type)`（见 [15](15-database-ddl.md)）。
+  3. `ensureWorkspace(project, user, runtimeType)`；顶栏/会话创建时显式选引擎或沿用项目默认绑定。
+- **后果**：README「一人一工作区」口号废止；调度、配额、Apply 均按 `(workspace, runtimeType)` 计。
+
+## ADR-013 external 实例绑定模型
+
+- **背景**：早期方案要求 MVP 强制 `boundUserId`（一实例一成员）；与「项目绑定多实例、演示 shared」冲突。
+- **决策**：
+  1. **不**引入必填 `boundUserId`。
+  2. 使用 `isolation`（`dedicated` | `shared`）+ `assignedProjectIds[]` 控制可见与调度范围。
+  3. **`dedicated`（推荐）**：调度保证同一时刻一实例只服务一个 `(project,user)` 工作区会话注入；多项目可列在 `assignedProjectIds`，但仍按工作区独占进程（一人一进程）。
+  4. **`shared`**：仅 internet-lab / 演示；Hub 强制单活跃用户；正式 intranet 交付禁止新建 `shared`（已有可禁用）。
+- **后果**：验收 A1 按「登记 + 项目绑定 + isolation=dedicated」描述；主 plan 中 `boundUserId` MVP 必填作废。
+
+## ADR-014 tenant.admin 与平台角色名
+
+- **背景**：主 plan 曾用 `platform.operator`，且对 tenant.admin 是否自动拥有项目权限表述不一。
+- **决策**：
+  1. 平台超级用户角色名统一为 **`platform.admin`**（JWT claim `pa`）；废弃 `platform.operator` 称谓。
+  2. **`tenant.admin` / `tenant.owner`**：在**管理面**权限判定视同该租户下所有项目的 `project.owner`（见 [03](03-auth-rbac.md)）。
+  3. **会话面**仍仅 `session.own`：不可读他人会话正文；审计元数据走 `session.audit_meta`。
+- **后果**：权限矩阵与 API 文档只用 `platform.admin`；实现与测试夹具同名。

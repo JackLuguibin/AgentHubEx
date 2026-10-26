@@ -21,7 +21,7 @@ todos:
     content: Phase1：用户与多空间绑定对话框 + 邀请按邮箱复用账号
     status: pending
   - id: phase1-external-proxy
-    content: Phase1：运行实例独占成员绑定 + Facade 反代
+    content: Phase1：运行实例登记（isolation+项目绑定，ADR-013）+ Facade 反代
     status: pending
   - id: phase1-config-apply
     content: Phase1：配置中心 Tabs/发布下发/回滚 + agenthub-sync
@@ -60,6 +60,8 @@ isProject: false
 ---
 
 # AgentHubEx 多租户 Agent 平台方案
+
+> **细节 SoT**：字段级 API、DDL、ADR、验收与运维以 [`docs/architecture/`](../../docs/architecture/README.md) 为准（含 ADR-012 工作区基数、ADR-013 external 绑定、ADR-014 角色名）。本文为产品/阶段摘要；与 architecture 冲突时以 architecture 为准并回写本文。
 
 ## 目标与约束
 
@@ -194,7 +196,7 @@ User（全局唯一账号，邮箱唯一）
 Tenant（可停用 suspended）
   └── Project（可归档 archived；不跨租户移动）
         ├── ProjectCredential / CommonSpace / Issue / ConfigBundle
-        └── Workspace（每成员个人工作区）→ AgentSession
+        └── Workspace（每成员 × 引擎，ADR-012）→ AgentSession
 ```
 
 ### 全局用户与多空间绑定（对齐最新原型）
@@ -204,20 +206,20 @@ Tenant（可停用 suspended）
 - **ProjectMembership**：`owner` / `developer` / `viewer`；**绑定项目前必须具备该项目所属租户的成员关系**。
 - **取消租户绑定**：级联移除该用户在此租户下全部项目绑定；其他租户关系不变。
 - **保护最后一名 owner**：租户与项目均不可去掉最后一名 `owner`。
-- **顶部切换器**：只列出当前用户已绑定且可用（租户 active、项目 active）的空间。
-- **平台管理员（platform operator）**：可管理租户元数据/配额/启停，及未绑定空间的目录视图；**不因此获得**他人工作区会话正文或个人凭据访问权。
-- **会话授权**：以 **当前项目的 ProjectMembership** 为准（`developer+` 才能开会话）；租户 admin ≠ 自动项目权限。
-- **停用租户 / 归档项目**：阻止进入工作区与新建会话，并停止进行中会话；资料保留，可恢复（恢复不自动重启会话）。
+- **顶部切换器**：只列出当前用户已绑定且可用（租户 active、项目未归档）的空间。
+- **平台管理员（`platform.admin`）**：可管理租户元数据/配额/启停，及未绑定空间的目录视图；**不因此获得**他人工作区会话正文或个人凭据访问权。
+- **会话授权**：以 **当前项目的 ProjectMembership** 为准（`developer+` 才能开会话）；`tenant.admin` 管理面视同 project.owner，但**会话面**仍仅本人会话（ADR-014）。
+- **停用租户 / 归档项目**：阻止进入工作区与新建会话，并停止进行中会话；资料保留，可恢复（恢复不自动重启会话）。详见 architecture 03 §3.7。
 - **成员页双视图**：① 当前项目成员；② **用户与多空间绑定**（多选租户→勾选其下项目并分别设角色）。
 
 - **Tenant**：组织边界；`slug` 创建后不可变；配额（并发 / 磁盘 / Token/日）；状态 `active|suspended`。
-- **Project**：归属唯一租户；`key` 租户内唯一（问题编号前缀，如 `AH`）；引擎/实例池/凭据策略；状态 `active|archived`。
+- **Project**：归属唯一租户；`key` 租户内唯一（问题编号前缀，如 `AH`）；引擎/实例池/凭据策略；状态以 `archivedAt` 表示归档。
 - **ProjectCommonSpace**：项目级**公共文件空间**（与个人工作区分离）；门户管理，成员共享只读或按角色写入（见下节）。
 - **UserCredential**：用户个人凭据（如 Anthropic / OpenAI / 自定义 OpenAI-compatible）；密文存储；仅 owner 可读写；可被该用户在有权项目中的会话选用。
 - **ProjectCredential**：项目级共享凭据；由 `project.owner`（及 `tenant.admin`）配置；项目内 `developer+` 可**使用**但 **API 永不返回明文**。
-- **Workspace（个人工作区，默认）**：强隔离执行单元；归属 `(projectId, ownerUserId)`。首版约定：**每个项目成员自动拥有（或首次进入时懒创建）一份个人工作区**，挂载卷  
+- **Workspace（个人工作区）**：强隔离执行单元；归属 **`(projectId, ownerUserId, runtimeType)`**（ADR-012）。首次进入/开会话按引擎懒创建，卷路径  
   `/workspaces/{tenantId}/{projectId}/{userId}/{workspaceId}`。  
-  个人区可写；公共空间默认以只读形式呈现，避免 Agent 互相覆盖共享资料。
+  个人区可写；公共空间默认只读呈现。Git 种子见 [14-workspace-git.md](../../docs/architecture/14-workspace-git.md)。
 - **AgentSession**：用户在自己工作区内开启的对话/任务；字段含 `ownerUserId`、`workspaceId`、`projectId`、`title`、`runtimeSessionRef`、**`credentialSource` + `credentialId`**（会话创建时锁定，避免中途切换导致计量混乱）。**同一用户可并行多个会话**；列表默认只返回 `ownerUserId = 当前用户`。
 - **Node**：可安装 Node Agent 的托管主机（managed 模式）。
 - **RuntimeInstance**：可连接的 OpenCode/Claude 端点；`mode=external`（门户登记的已有服务）或 `mode=managed`（Agent 拉起）；含 `baseUrl`、节点认证密文引用、健康状态、标签。
@@ -436,8 +438,8 @@ flowchart LR
 
 ### RBAC（对齐原型：平台 / 租户 / 项目三层）
 
-- `platform.operator`：租户 CRUD、配额、启停；查看租户/项目元数据目录；**不读**会话正文与个人凭据。
-- `tenant.owner|admin`：本租户项目管理、用户多空间绑定（本租户范围）、租户级配额展示；取消租户绑定会清掉其下项目绑定。
+- `platform.admin`（原称 operator，已废止）：租户 CRUD、配额、启停；查看租户/项目元数据目录；**不读**会话正文与个人凭据（ADR-014）。
+- `tenant.owner|admin`：本租户项目管理、用户多空间绑定（本租户范围）、租户级配额展示；**管理面**视同各项目 `project.owner`；取消租户绑定会清掉其下项目绑定并保护最后一名 owner（见 architecture 03）。
 - `tenant.member`：仅进入已绑定的项目（还须有 ProjectMembership）。
 - `project.owner`：项目成员/实例绑定/项目凭据/受保护前缀/归档；强制关闭 Issue。
 - `project.developer`：个人工作区与会话；看板写；非保护公共文件写。
@@ -525,7 +527,7 @@ sequenceDiagram
 - **网络**：容器只听 Node 内网；由 Node Agent 分配端口或走反向代理；外网只打到 Hub Gateway。
 - **凭据**：按会话解析的个人或项目 Provider Key，由 Hub 注入 Runtime 或走 LLM Proxy；容器卷内不落明文密钥文件。
 - **资源**：CPU/内存/磁盘 quota per workspace；另加 **每用户并发会话数**、**每项目活跃工作区数** 配额。
-- **安全**：只读根文件系统 + 可写 workspace；禁止特权容器。
+- **安全**：容器可写根（便于装依赖）+ 可写 workspace 卷；`cap-drop ALL`、非 root、无 docker.sock；**不做**只读根（ADR-002）。禁止特权容器。
 
 Node Agent API（内网 mTLS）：
 
@@ -559,12 +561,12 @@ Hub 探测 /global/health，保存为 RuntimeInstance(mode=external)
 | **external（登记连接）** | 服务器上已有 OpenCode，门户只配置连接 | 运维自行部署 | **MVP 主路径**；利旧机器、快速接入 |
 | **managed（Agent 编排）** | 安装 Node Agent，由 Hub 按用户工作区拉起容器 | Node Agent | 强隔离规模化；与 2A 完整对齐 |
 
-`RuntimeInstance` 字段：`mode`、`baseUrl`、`authSecretRef`、`healthStatus`、`labels[]`、`syncAgentStatus`（agenthub-sync 是否已连接）、**`boundUserId`（独占成员，MVP 必填）**、延迟探测结果等。
+`RuntimeInstance` 字段：`mode`、`baseUrl`、`authSecretRef`、`healthStatus`、`labels[]`、`isolation`（`dedicated`|`shared`）、`assignedProjectIds[]`、`syncAgentStatus`、延迟探测等。**无**必填 `boundUserId`（ADR-013）。
 
 ### 门户「登记远程 OpenCode」（对齐原型「运行实例」）
 
-- **表单**：实例名称、服务 URL、节点认证用户名/密码或 Token、**绑定成员工作区（独占）**、节点标签；提交后 Hub 测活，不向浏览器回显节点认证。
-- **独占绑定（MVP 强制）**：每个 external 实例仅绑定一名非 viewer 成员；禁止多人共用同一 OpenCode 进程充当多租户。列表展示「工作区归属 / 健康 / sync / 延迟」。
+- **表单**：实例名称、服务 URL、节点认证、`isolation`、可分配项目、节点标签；提交后 Hub 测活，不向浏览器回显节点认证。
+- **绑定模型（ADR-013）**：推荐 `dedicated`（调度保证一人一进程会话注入）；`shared` 仅演示且单活跃用户，intranet 交付禁止新建。禁止把同一 OpenCode 进程当多租户共用。列表展示「项目绑定 / 健康 / sync / 延迟」。
 - **可达性**：`GET /global/health`；离线实例可保留配置，但 **配置下发失败并阻断**（原型中 oc-staging-03）。
 - **网络**：Hub 访问内网 URL；不对公网裸暴露节点。
 - **同步组件**：详情展示 Browser → Hub Facade → Runtime，以及 ConfigBundle → agenthub-sync → Workspace；未装 sync 时文件型下发不可用。
@@ -670,7 +672,7 @@ flowchart TB
 | `overview` | 项目概览 | 指标、我的待办、动态、运行环境、交付阶段 |
 | `board` | 项目看板 | 四列+折叠取消；人工确认评审/已解决；关联本人会话 |
 | `workbench` | 我的工作台 | 同 SPA 内 `packages/workbench`：本人会话/选凭据/流式对话/权限；文件树区分个人/`project-common` |
-| `instances` | 运行实例 | 登记、**独占成员绑定**、健康/sync、检测 |
+| `instances` | 运行实例 | 登记、isolation/项目绑定、健康/sync、检测 |
 | `config` | 配置中心 | Agent/MCP/Skill/AGENTS.md/权限与模型/下发记录 |
 | `files` | 公共文件 | 树+面包屑+保护前缀+版本回滚 |
 
@@ -793,7 +795,7 @@ AgentHubEx/
 
 ### Phase 1 — 对齐最新 html 原型的可运行门户 MVP
 - 三组导航全页 + 用户多空间绑定。
-- 实例独占绑定、配置下发、公共文件、看板人工确认。
+- 实例登记与项目绑定（ADR-013）、配置下发、公共文件、看板人工确认。
 - **React Workbench P1**：流式对话、权限、文件树预览、选凭据、关联 Issue。
 - Worker allowlist + `allowedProviderHosts`；offline-bundle 最小可装。
 - 验收：主路径 + 隔离/凭据 + **N1–N4 内网**（见 18.7）。
@@ -813,7 +815,7 @@ AgentHubEx/
 - **对照**最新 [`.cursor/plans/html`](.cursor/plans/html/README.md)：三组导航、租户/项目管理、用户多空间绑定均可走通（真实后端）。
 - 全局用户可绑多租户/多项目；项目绑定依赖租户成员；取消租户绑定级联清项目绑定；保护最后一名 owner；邀请按邮箱复用账号。
 - 顶栏仅展示已绑定且可用空间；停用租户/归档项目阻断工作区并停止会话。
-- 登记远程实例 **独占绑定成员**；经「我的工作台」进会话，不知节点地址/密码。
+- 登记远程实例（`dedicated` + 项目绑定）；经「我的工作台」进会话，不知节点地址/密码。
 - 配置下发、公共文件同步、看板人工确认评审/已解决、双凭据与隔离同前。
 - 后续验收 Phase 2 托管节点与 Phase 3 Claude。
 

@@ -136,7 +136,7 @@ UI 不分支双页面；只读 `runtimeType` + `Workspace.capabilities`。事件
 - access JWT 内存；refresh 在 httpOnly cookie；API `credentials: 'include'`。
 - 401 → **单飞** refresh → 重放；refresh 失败 → `/login`。
 - 多 Tab：`BroadcastChannel('auth')` 同步登出；登录页完成 OIDC 回调后同通道通知。
-- CORS：仅配置的 Hub 前端源；`SameSite=Lax`（同站部署）或按子域方案调 Strict + 共享父域。
+- CORS：仅配置的 Hub 前端源；refresh cookie **`SameSite=Strict`**（与 [16](16-api-schema.md) 一致）；跨子域部署时改用同站父域 cookie + Strict，不降为 Lax。
 
 ## 10.9 SSE 与连接预算
 
@@ -147,6 +147,13 @@ UI 不分支双页面；只读 `runtimeType` + `Workspace.capabilities`。事件
 | 看板 | `board/events` | 15s 轮询 `GET board` |
 
 每用户 SSE 并发上限 10（见 [04](04-gateway-facade.md) §4.8）。典型占用：会话 1 + 看板 1 + 工作区状态 1；PTY 另计。离开页面必须关闭流。
+
+**会话 SSE 重连状态机**（与 [04 §4.4.1](04-gateway-facade.md) 对齐）：
+
+1. 带 `Last-Event-ID` 重连 → 正常补事件。  
+2. 收到 `SSE_CURSOR_STALE` 或 HTTP 409 → `GET .../messages` 对齐 UI → **清空** Last-Event-ID 重开流。  
+3. 网络错误：指数退避 1s→30s；页面不可见（`document.hidden`）时暂停重连，可见后再连。  
+4. 断连 UX：顶栏轻量「实时连接已断开，消息仍可发送」；不引入 PWA/浏览器离线包。
 
 ## 10.10 环境与部署
 

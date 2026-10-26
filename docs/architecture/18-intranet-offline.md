@@ -84,6 +84,44 @@ docker build 各镜像
 | N3 | Worker 容器 | 无法访问公网 IP；可访问 allowlist 内 LLM |
 | N4 | 仅导入 bundle（无 npm registry） | 按手册完成安装升级 |
 
-## 18.8 与开发档差异
+## 18.8 与开发档差异 / 本地体验
 
 开发者可在 internet-lab 使用公网模型与镜像以加速；**合并/发布产物必须能在 intranet 档验证 N1–N4**。CI 增加「禁止前端引入外链 URL」的静态检查（允许列表除外）。
+
+| 项 | internet-lab（开发） | intranet（交付） |
+|---|---|---|
+| Compose | `compose.override.yml` 可挂公网模型 | 仅 `compose.intranet.yml` |
+| `pnpm dev` | Vite + hub-api + 本地 PG/Redis；可选 mock LLM | 不在生产机跑 |
+| 种子 | `pnpm db:seed`：demo 租户/项目/用户 | 离线包不含 demo 密钥 |
+| Worker | 可连公网 opencode | 仅私有 Registry 镜像 |
+
+## 18.9 升级与回滚
+
+1. 导入新 offline-bundle（镜像 digest + `hub-shell-dist` + migrations）。  
+2. **先** `drizzle-kit migrate`（向前兼容：新代码未起前，旧 API 仍可用旧 schema；禁止破坏性多步时用 expand/contract）。  
+3. 滚动替换 hub-api / hub-jobs；再换 hub-shell 静态资源。  
+4. worker / node-agent 镜像：按 digest 滚动；**有活跃会话的节点**先 drain 再升级（heartbeat `drain`）。  
+5. **失败回滚**：保留上一 bundle；数据库仅当迁移可逆或已备份时回滚；否则修正向迁移。活跃会话策略：升级窗口允许 abort 并提示用户重开。  
+6. 版本兼容矩阵记在 bundle `VERSION.txt`（Hub semver ↔ minAgentVersion ↔ worker digest）。
+
+## 18.10 环境变量清单
+
+| 变量 | 组件 | 必填 | 默认 | 说明 |
+|---|---|---|:-:|---|---|
+| `DEPLOY_PROFILE` | 全体 | | `intranet` | `intranet` \| `airgap` \| `internet-lab` |
+| `DATABASE_URL` | hub-api/jobs | ✓ | | PG |
+| `REDIS_URL` | hub-api/jobs | ✓ | | |
+| `S3_ENDPOINT` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_BUCKET` | hub-api/jobs | ✓ | | MinIO 兼容 |
+| `AGENTHUB_MASTER_KEY` | hub-api/jobs | ✓ | | KEK；可 `_V2` 双窗口 |
+| `AGENTHUB_JWT_KEYS` | hub-api | ✓ | | JWKS JSON 或 PEM 列表 |
+| `AGENTHUB_BOOTSTRAP_ADMIN_EMAIL` | hub-api | | | 首次初始化 |
+| `AGENTHUB_PUBLIC_URL` | hub-api | ✓ | | 邀请链接/OIDC 回调 |
+| `AGENTHUB_CORS_ORIGINS` | hub-api | ✓ | | 逗号分隔 |
+| `USAGE_DAY_TZ` | hub-api | | `UTC` | 日配额窗口 |
+| `CONTROL_PLANE_CIDR` | node-agent | ✓（数据面） | | 出网拒绝 |
+| `EGRESS_ALLOWLIST` | node-agent | intranet | | CIDR 列表 |
+| `AGENTHUB_URL` / `BOOTSTRAP_TOKEN` | node-agent | 注册时 | | |
+| `VITE_HUB_API_BASE` | hub-shell 构建 | | 空=同域 | 打进 dist |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | 可选 | | | 空=禁用导出 |
+
+密钥类不得写入仓库；intranet 用环境文件或编排 secret。与 `@t3-oss/env-core` 校验对齐（[17](17-libraries.md)）。

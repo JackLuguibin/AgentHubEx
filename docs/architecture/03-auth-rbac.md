@@ -196,9 +196,10 @@ queue "jobs" as Q
 participant Runtime as R
 
 Owner -> H : DELETE /v1/projects/{p}/members/{u}
-H -> PG : 删除 membership；workspace.status=revoked
+H -> H : 若为最后一名 project.owner → 409 CONFLICT
+H -> PG : 删除 membership；该用户在本项目全部 runtimeType 的 workspace.status=revoked
 H -> H : 失效 pm 缓存；吊销该用户对该 workspace 的 SSE 连接
-H -> Q : enqueue RevokeWorkspaceJob
+H -> PG : 同事务写 jobs_outbox(RevokeWorkspaceJob)
 Q -> PG : 查活跃 AgentSession
 Q -> R : abort 每个活跃会话
 Q -> R : 清除注入的 ProjectCredential (DELETE /auth/:id)
@@ -207,3 +208,43 @@ Q -> Q : 按策略 schedule 卷删除 (默认保留 7 天)
 H --> Owner : 204
 @enduml
 ```
+
+**取消租户成员**（`DELETE /v1/tenants/{t}/members/{u}`）：
+
+1. 不可移除最后一名 `tenant.owner` → 409。
+2. 同事务删除该用户在本租户下**全部** `project_memberships`，并对每个受影响 workspace 写 `RevokeWorkspaceJob`（同 3.6）。
+3. 删除 `tenant_memberships` 行；失效租户/项目角色缓存；吊销其 refresh family 中带该 `tid` 的会话（或强制下次 refresh 丢弃 tid）。
+
+邀请按邮箱复用：若邮箱已有全局 User，接受邀请只建 membership / projectGrants，不新建账号（密码可选跳过）。
+
+## 3.7 租户 / 项目生命周期
+
+```plantuml
+@startuml lifecycle
+[*] --> active : 创建租户/项目
+active --> suspended : platform.admin 停用租户
+suspended --> active : unsuspend
+active --> archived : owner 归档项目
+archived --> active : unarchive（租户须 active）
+note right of suspended
+  拒绝该 tid 下一切写操作与开会话；
+  进行中会话 abort；
+  登录仍可切换到其他 active 租户
+end note
+note right of archived
+  项目只读元数据；
+  拒绝新开会话 / Apply / 公共写；
+  abort 项目内活跃会话
+end note
+@enduml
+```
+
+| 事件 | 行为 |
+|---|---|
+| `POST .../tenants/{t}/suspend` | `tenants.status=suspended`；outbox `AbortTenantSessions`；Gateway 对写 API 与 `session.create`/`messages` 返回 409 `TENANT_SUSPENDED` |
+| `unsuspend` | 恢复 active；不自动重启已 abort 的会话 |
+| `POST .../projects/{p}/archive` | `archived_at=now()`；outbox `AbortProjectSessions`；写操作 409 `PROJECT_ARCHIVED` |
+| `unarchive` | 清 `archived_at`；若租户 suspended 则拒绝 |
+| 顶栏空间列表 | 仅展示：当前用户有 `project_memberships` **且** 项目未归档 **且** 租户 active 的项目 |
+
+> ADR-014：`tenant.admin` 管理面视同 project.owner，可执行归档；停用租户仅 `platform.admin`。

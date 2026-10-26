@@ -17,10 +17,13 @@
 **** ProjectCommonSpace
 ***** CommonFile / CommonFileVersion
 **** ProjectIssue
-**** Workspace (每成员一个)
+**** ProjectRepo (多仓种子)
+**** Workspace (每成员 × 引擎一套, ADR-012)
 ***** AgentSession
+***** SessionMessage (Hub 镜像)
 ***** ApplyJob / SyncJob
 ** User
+*** UserIdentity
 *** UserCredential
 *** ProjectMemberPreference
 ** Node
@@ -81,10 +84,15 @@ class Tenant {
 class User {
   id: uuid
   email: string
+  handle: string
   displayName: string
   passwordHash?: string
-  idpSubject?: string
   isPlatformAdmin: bool
+}
+class UserIdentity {
+  userId
+  provider: string
+  subject: string
 }
 class TenantMembership {
   tenantId
@@ -93,11 +101,16 @@ class TenantMembership {
 }
 class Project {
   id; tenantId; key: string (PROJ)
-  name; gitRepoUrl?
+  name
   credentialPolicy: CredentialPolicy
   commonSyncPolicy: on_workspace_start|on_common_publish
   configLock: ConfigLock
   issueSeq: int
+  archivedAt?
+}
+class ProjectRepo {
+  id; projectId; slug; url
+  defaultBranch; isPrimary: bool
 }
 class ProjectMembership {
   projectId
@@ -141,6 +154,7 @@ class ProjectRuntimeBinding {
 }
 class Workspace {
   id; tenantId; projectId; ownerUserId
+  runtimeType: RuntimeType
   instanceId?; status
   volumePath; appliedRevisionId?
   commonSyncedAt?; lastActiveAt
@@ -152,10 +166,14 @@ class AgentSession {
   credentialId; credentialVersion
   issueId?; status
 }
+class SessionMessage {
+  id; sessionId; role; parts: json
+  upstreamRef?; seq?; createdAt
+}
 class ConfigBundle {
   id
-  scope: tenant|project|user
-  scopeId
+  scope: platform|tenant|project|user
+  scopeId?
   name
 }
 class ConfigRevision {
@@ -221,10 +239,12 @@ class UsageRecord {
 
 Tenant "1" -- "*" TenantMembership
 User "1" -- "*" TenantMembership
+User "1" -- "*" UserIdentity
 Tenant "1" -- "*" Project
 Tenant "1" -- "*" HubApiKey
 Project "1" -- "*" ProjectMembership
 User "1" -- "*" ProjectMembership
+Project "1" -- "*" ProjectRepo
 Project "1" -- "*" ProjectCredential
 User "1" -- "*" UserCredential
 Project "1" -- "*" ProjectRuntimeBinding
@@ -233,6 +253,7 @@ User "1" -- "*" Workspace
 Workspace "1" -- "0..1" RuntimeInstance : runs_on
 Node "1" -- "*" RuntimeInstance
 Workspace "1" -- "*" AgentSession
+AgentSession "1" -- "*" SessionMessage
 AgentSession "*" -- "0..1" ProjectIssue
 ProjectIssue "1" -- "*" IssueSessionLink
 ConfigBundle "1" -- "*" ConfigRevision
@@ -253,9 +274,12 @@ Project "1" -- "*" ProjectIssue
 | 表 | 主要字段 | 约束 / 索引 |
 |---|---|---|
 | `tenants` | id, slug, name, quota jsonb, status | `uq(slug)` |
-| `users` | id, email, display_name, password_hash, idp_subject, is_platform_admin | `uq(lower(email))` |
+| `users` | id, email, handle, display_name, password_hash, is_platform_admin | `uq(lower(email))`, `uq(lower(handle))` |
+| `user_identities` | user_id, provider, subject | `uq(provider,subject)` |
+| `oidc_providers` | id, tenant_id?, issuer, client_id, … | |
 | `tenant_memberships` | tenant_id, user_id, role | `pk(tenant_id,user_id)` |
-| `projects` | id, tenant_id, key, name, git_repo_url, credential_policy, common_sync_policy, config_lock jsonb, issue_seq | `uq(tenant_id,key)` |
+| `projects` | id, tenant_id, key, name, credential_policy, common_sync_policy, config_lock jsonb, issue_seq, archived_at | `uq(tenant_id,key)` |
+| `project_repos` | id, project_id, slug, url, default_branch, is_primary | `uq(project_id,slug)` |
 | `project_memberships` | tenant_id, project_id, user_id, role | `pk(project_id,user_id)`, `idx(tenant_id,user_id)` |
 | `project_member_prefs` | project_id, user_id, preferred_credential_ref | pk(project_id,user_id) |
 | `user_credentials` | id, user_id, provider, label, secret_ciphertext bytea, key_version, metadata, status, version | `idx(user_id)` |
@@ -264,9 +288,11 @@ Project "1" -- "*" ProjectIssue
 | `nodes` | id, name, labels, status, capacity, last_heartbeat_at, cert_fingerprint | |
 | `runtime_instances` | id, tenant_id?, node_id?, mode, runtime_type, base_url, auth_secret_ciphertext, isolation, labels, health_status, latency_ms, max_sessions, has_sync_agent, assigned_project_ids uuid[] | `idx(tenant_id,mode)`, GIN(labels) |
 | `project_runtime_bindings` | id, tenant_id, project_id, runtime_type, instance_id?, label_selector jsonb, priority | check(instance_id 或 label_selector 二选一) |
-| `workspaces` | id, tenant_id, project_id, owner_user_id, instance_id, status, volume_path, applied_revision_hash, common_synced_at, last_active_at | `uq(project_id,owner_user_id) where kind='personal'` |
+| `workspaces` | id, tenant_id, project_id, owner_user_id, runtime_type, instance_id, status, volume_path, applied_revision_hash, common_synced_at, last_active_at | `uq(project_id,owner_user_id,runtime_type)`（ADR-012） |
 | `agent_sessions` | id, tenant_id, project_id, workspace_id, owner_user_id, title, runtime_type, runtime_session_ref, credential_source, credential_id, credential_version, issue_id, status | `idx(tenant_id,owner_user_id,project_id,created_at desc)` |
-| `config_bundles` | id, tenant_id, scope, scope_id, name | |
+| `session_messages` | id, tenant_id, session_id, role, parts jsonb, upstream_ref, seq, created_at | Hub 权威镜像（见 [04 §4.9](04-gateway-facade.md)）；`idx(session_id, created_at)` |
+| `jobs_outbox` | id, tenant_id, job_type, payload jsonb, status, attempts, available_at | 事务发件箱（见 [15](15-database-ddl.md)） |
+| `config_bundles` | id, tenant_id?, scope (`platform`\|`tenant`\|`project`\|`user`), scope_id?, name | platform 时 `scope_id`/`tenant_id` 为空 |
 | `config_revisions` | id, bundle_id, version, state, manifest jsonb, content_hash, published_by | `uq(bundle_id,version)` |
 | `config_assignments` | project_id, bundle_id, pin | |
 | `apply_jobs` | id, tenant_id, workspace_id, instance_id, revision_hash, channel, status, diff_summary, error, attempts | `idx(workspace_id,created_at desc)` |
@@ -308,3 +334,12 @@ stop
 - 主键：UUIDv7（时间有序，利于索引）。
 - 对外 Issue key：`{project.key}-{seq}`，`seq` 由 `UPDATE projects SET issue_seq = issue_seq + 1 RETURNING` 原子生成。
 - 资源不存在与无权访问统一返回 `404`，避免枚举。
+
+## 2.6 租户 / 项目状态（摘要）
+
+| 实体 | 状态字段 | 影响 |
+|---|---|---|
+| Tenant | `active` \| `suspended` | suspended：拒写与开会话，abort 进行中会话（[03 §3.7](03-auth-rbac.md)） |
+| Project | `archived_at` null=活跃 | 归档后只读元数据；拒开会话 / Apply / 公共写 |
+
+工作区基数见 ADR-012；生命周期 API 见 [16](16-api-schema.md)。
