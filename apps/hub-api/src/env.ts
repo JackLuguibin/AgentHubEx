@@ -20,6 +20,12 @@ export const env = createEnv({
       .enum(["true", "false"])
       .default("false")
       .transform((v) => v === "true"),
+    /** When true (default), use in-process mock OpenCode if no real instance. */
+    RUNTIME_MOCK: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((v) => v === "true"),
+    CORS_ORIGIN: z.string().default("http://localhost:5173"),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

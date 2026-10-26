@@ -4,27 +4,28 @@ overview: React SPA 骨架 + workbench/agent-client；Facade 打通一条流式�
 todos:
   - id: scaffold-hub-shell
     content: 创建 apps/hub-shell：Vite+React19+Router+Tailwind+shadcn；禁外链字体/脚本
-    status: pending
+    status: completed
   - id: pkg-ui-agent
     content: 创建 packages/hub-ui-kit、agent-client、workbench 骨架包
-    status: pending
+    status: completed
   - id: shell-auth-layout
     content: 实现登录页 + Auth/Tenant Provider + 基础 Shell 布局路由
-    status: pending
+    status: completed
   - id: facade-session-api
     content: hub-api：POST sessions/messages + GET events SSE + adapter/opencode 最小代理
-    status: pending
+    status: completed
   - id: workbench-stream
     content: workbench：本人会话列表/发消息/流式渲染（fetch-event-source）
-    status: pending
+    status: completed
   - id: intranet-runtime
     content: 文档化或 compose 附加内网 opencode serve / mock LLM baseUrl
-    status: pending
+    status: completed
   - id: dod-e2e-stream
     content: DoD：浏览器登录→开会话→收到流式事件；DevTools 无公网请求
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P0-03 SPA 与 Facade 会话联调
 
 > **索引 todo**：`phase0-react-spa` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

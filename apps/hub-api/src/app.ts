@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { createDb, type Db } from "@agenthub/db";
 import { Redis } from "ioredis";
+import { cors } from "hono/cors";
 import type { AppEnv } from "./context.js";
 import { env } from "./env.js";
 import { errorHandler } from "./middleware/error-handler.js";
@@ -11,6 +12,7 @@ import { credentialRoutes } from "./routes/credentials.js";
 import { instanceRoutes } from "./routes/instances.js";
 import { issueRoutes } from "./routes/issues.js";
 import { projectRoutes } from "./routes/projects.js";
+import { sessionRoutes } from "./routes/sessions.js";
 import { tenantRoutes } from "./routes/tenants.js";
 
 export type CreateAppOptions = {
@@ -48,6 +50,20 @@ export function createApp(options: CreateAppOptions = {}) {
   app.onError(errorHandler);
 
   app.use("*", requestIdMiddleware);
+  app.use(
+    "*",
+    cors({
+      origin: appEnv.CORS_ORIGIN,
+      credentials: true,
+      allowHeaders: [
+        "Authorization",
+        "Content-Type",
+        "Last-Event-ID",
+        "X-Request-Id",
+      ],
+      exposeHeaders: ["X-Request-Id"],
+    }),
+  );
   app.use("*", async (c, next) => {
     c.set("db", db);
     c.set("redis", redis);
@@ -85,6 +101,7 @@ export function createApp(options: CreateAppOptions = {}) {
   v1.route("/", credentialRoutes());
   v1.route("/", instanceRoutes());
   v1.route("/", issueRoutes());
+  v1.route("/", sessionRoutes());
 
   // Serve OpenAPI outside auth-gated routers mounted at "/"
   const openApiDoc = v1.getOpenAPI31Document({

@@ -12,9 +12,11 @@
     "seed": "tsx src/seed.ts"
   },
   "dependencies": {
+    "@agenthub/adapter-opencode": "workspace:*",
     "@agenthub/auth": "workspace:*",
     "@agenthub/db": "workspace:*",
     "@agenthub/domain": "workspace:*",
+    "@agenthub/runtime-contract": "workspace:*",
     "@hono/node-server": "^1.13.7",
     "@hono/zod-openapi": "^0.18.3",
     "@t3-oss/env-core": "^0.11.1",

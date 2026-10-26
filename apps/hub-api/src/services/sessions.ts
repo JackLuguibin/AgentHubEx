@@ -1,0 +1,650 @@
+import { and, desc, eq, ne } from "drizzle-orm";
+import type { Db } from "@agenthub/db";
+import {
+  agentSessions,
+  projectCredentials,
+  projectIssues,
+  projectRuntimeBindings,
+  projects,
+  runtimeInstances,
+  userCredentials,
+  workspaces,
+} from "@agenthub/db";
+import { can } from "@agenthub/auth";
+import type { AgentSession, CreateSessionReqSchema } from "@agenthub/domain";
+import { opencodeAdapter } from "@agenthub/adapter-opencode";
+import { DEFAULT_CAPABILITIES, type InstanceCtx } from "@agenthub/runtime-contract";
+import type { z } from "zod";
+import { AppError, conflict, forbidden, notFound } from "../errors.js";
+import { decryptSecret, encryptSecret } from "../lib/crypto.js";
+import { newId } from "../lib/id.js";
+import { toIso } from "../lib/time.js";
+import { resolveProjectAccess } from "./projects.js";
+import { assertTenantActive } from "./tenants.js";
+
+type CreateSessionInput = z.infer<typeof CreateSessionReqSchema>;
+
+type CredRef = {
+  source: "user" | "project";
+  id: string;
+  label: string;
+  version: number;
+};
+
+async function requireSessionAccess(
+  db: Db,
+  sessionId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+) {
+  const [row] = await db
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.id, sessionId))
+    .limit(1);
+  if (!row || row.status === "archived") throw notFound("Session not found");
+
+  const access = await resolveProjectAccess(db, row.projectId, userId, isPlatformAdmin);
+  if (!can(access.projectRole, access.tenantRole, "session.own", { isPlatformAdmin })) {
+    throw forbidden();
+  }
+  if (row.ownerUserId !== userId && !isPlatformAdmin) {
+    throw notFound("Session not found");
+  }
+  return { row, access };
+}
+
+async function resolveCredential(
+  db: Db,
+  projectId: string,
+  userId: string,
+  policy: string,
+  input: CreateSessionInput,
+): Promise<CredRef> {
+  if (input.credentialId && input.credentialSource) {
+    if (input.credentialSource === "user") {
+      const [uc] = await db
+        .select()
+        .from(userCredentials)
+        .where(
+          and(
+            eq(userCredentials.id, input.credentialId),
+            eq(userCredentials.userId, userId),
+          ),
+        )
+        .limit(1);
+      if (!uc || uc.status !== "active") throw notFound("Credential not found");
+      if (policy === "project_only") {
+        throw new AppError(409, "CONFLICT", "User credentials not allowed by policy", {
+          details: { code: "CREDENTIAL_POLICY_VIOLATION" },
+        });
+      }
+      return {
+        source: "user",
+        id: uc.id,
+        label: uc.label,
+        version: uc.currentVersion,
+      };
+    }
+    const [pc] = await db
+      .select()
+      .from(projectCredentials)
+      .where(
+        and(
+          eq(projectCredentials.id, input.credentialId),
+          eq(projectCredentials.projectId, projectId),
+        ),
+      )
+      .limit(1);
+    if (!pc || pc.status !== "active") throw notFound("Credential not found");
+    if (policy === "user_only") {
+      throw new AppError(409, "CONFLICT", "Project credentials not allowed by policy", {
+        details: { code: "CREDENTIAL_POLICY_VIOLATION" },
+      });
+    }
+    return {
+      source: "project",
+      id: pc.id,
+      label: pc.label,
+      version: pc.currentVersion,
+    };
+  }
+
+  // Auto-pick: default project cred → first user cred
+  if (policy !== "user_only") {
+    const [pc] = await db
+      .select()
+      .from(projectCredentials)
+      .where(
+        and(
+          eq(projectCredentials.projectId, projectId),
+          eq(projectCredentials.status, "active"),
+          eq(projectCredentials.isDefault, true),
+        ),
+      )
+      .limit(1);
+    if (pc) {
+      return {
+        source: "project",
+        id: pc.id,
+        label: pc.label,
+        version: pc.currentVersion,
+      };
+    }
+  }
+  if (policy !== "project_only") {
+    const [uc] = await db
+      .select()
+      .from(userCredentials)
+      .where(
+        and(eq(userCredentials.userId, userId), eq(userCredentials.status, "active")),
+      )
+      .limit(1);
+    if (uc) {
+      return {
+        source: "user",
+        id: uc.id,
+        label: uc.label,
+        version: uc.currentVersion,
+      };
+    }
+  }
+
+  throw new AppError(409, "CONFLICT", "No usable credential", {
+    details: { code: "CREDENTIAL_REQUIRED" },
+  });
+}
+
+async function ensureMockOrBoundInstance(
+  db: Db,
+  tenantId: string,
+  projectId: string,
+  runtimeType: "opencode" | "claude",
+  runtimeMock: boolean,
+  platformDek: string,
+) {
+  const [binding] = await db
+    .select()
+    .from(projectRuntimeBindings)
+    .where(
+      and(
+        eq(projectRuntimeBindings.projectId, projectId),
+        eq(projectRuntimeBindings.runtimeType, runtimeType),
+      ),
+    )
+    .limit(1);
+
+  if (binding?.instanceId) {
+    const [inst] = await db
+      .select()
+      .from(runtimeInstances)
+      .where(eq(runtimeInstances.id, binding.instanceId))
+      .limit(1);
+    if (inst) return inst;
+  }
+
+  // Prefer any healthy/external instance for the tenant
+  const [existing] = await db
+    .select()
+    .from(runtimeInstances)
+    .where(
+      and(
+        eq(runtimeInstances.tenantId, tenantId),
+        eq(runtimeInstances.runtimeType, runtimeType),
+        ne(runtimeInstances.healthStatus, "disabled"),
+      ),
+    )
+    .limit(1);
+  if (existing) return existing;
+
+  if (!runtimeMock) {
+    throw new AppError(409, "CONFLICT", "No runtime instance available", {
+      details: { code: "WORKSPACE_NOT_READY" },
+    });
+  }
+
+  // Create a mock external instance for local P0
+  const id = newId();
+  const [inst] = await db
+    .insert(runtimeInstances)
+    .values({
+      id,
+      tenantId,
+      name: "local-mock-opencode",
+      mode: "external",
+      runtimeType,
+      baseUrl: "mock://opencode",
+      tlsVerify: false,
+      isolation: "shared",
+      labels: { mock: "true" },
+      healthStatus: "healthy",
+      assignedProjectIds: [projectId],
+      authUsername: "mock",
+      authSecretCiphertext: encryptSecret("mock-password", platformDek),
+      authKeyVersion: 1,
+    })
+    .returning();
+
+  await db.insert(projectRuntimeBindings).values({
+    id: newId(),
+    tenantId,
+    projectId,
+    runtimeType,
+    instanceId: id,
+    priority: 100,
+  });
+
+  return inst!;
+}
+
+export function toInstanceCtx(
+  row: typeof runtimeInstances.$inferSelect,
+  platformDek: string,
+  runtimeMock: boolean,
+): InstanceCtx {
+  const mock = runtimeMock || row.baseUrl.startsWith("mock://");
+  let auth: InstanceCtx["auth"];
+  if (row.authUsername && row.authSecretCiphertext) {
+    auth = {
+      username: row.authUsername,
+      password: decryptSecret(Buffer.from(row.authSecretCiphertext), platformDek),
+    };
+  }
+  return {
+    baseUrl: row.baseUrl,
+    auth,
+    tlsVerify: row.tlsVerify,
+    mock,
+  };
+}
+
+async function ensureWorkspace(
+  db: Db,
+  tenantId: string,
+  projectId: string,
+  userId: string,
+  runtimeType: "opencode" | "claude",
+  instanceId: string,
+) {
+  const [existing] = await db
+    .select()
+    .from(workspaces)
+    .where(
+      and(
+        eq(workspaces.projectId, projectId),
+        eq(workspaces.ownerUserId, userId),
+        eq(workspaces.runtimeType, runtimeType),
+        ne(workspaces.status, "deleted"),
+      ),
+    )
+    .limit(1);
+  if (existing) {
+    if (existing.status !== "ready" && existing.status !== "idle") {
+      await db
+        .update(workspaces)
+        .set({ status: "ready", instanceId, updatedAt: new Date() })
+        .where(eq(workspaces.id, existing.id));
+      return { ...existing, status: "ready", instanceId };
+    }
+    if (!existing.instanceId) {
+      await db
+        .update(workspaces)
+        .set({ instanceId, updatedAt: new Date() })
+        .where(eq(workspaces.id, existing.id));
+      return { ...existing, instanceId };
+    }
+    return existing;
+  }
+
+  const id = newId();
+  const [row] = await db
+    .insert(workspaces)
+    .values({
+      id,
+      tenantId,
+      projectId,
+      ownerUserId: userId,
+      kind: "personal",
+      runtimeType,
+      instanceId,
+      status: "ready",
+      spec: {},
+    })
+    .returning();
+  return row!;
+}
+
+async function mapSession(db: Db, row: typeof agentSessions.$inferSelect): Promise<AgentSession> {
+  let credLabel = "credential";
+  if (row.credentialSource === "user") {
+    const [uc] = await db
+      .select()
+      .from(userCredentials)
+      .where(eq(userCredentials.id, row.credentialId))
+      .limit(1);
+    if (uc) credLabel = uc.label;
+  } else {
+    const [pc] = await db
+      .select()
+      .from(projectCredentials)
+      .where(eq(projectCredentials.id, row.credentialId))
+      .limit(1);
+    if (pc) credLabel = pc.label;
+  }
+
+  let issue: AgentSession["issue"] = null;
+  if (row.issueId) {
+    const [iss] = await db
+      .select()
+      .from(projectIssues)
+      .where(eq(projectIssues.id, row.issueId))
+      .limit(1);
+    if (iss) {
+      const [proj] = await db
+        .select()
+        .from(projects)
+        .where(eq(projects.id, iss.projectId))
+        .limit(1);
+      issue = {
+        id: iss.id,
+        key: `${proj?.key ?? "ISS"}-${iss.seq}`,
+        title: iss.title,
+        status: iss.status as NonNullable<AgentSession["issue"]>["status"],
+      };
+    }
+  }
+
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    workspaceId: row.workspaceId,
+    ownerUserId: row.ownerUserId,
+    title: row.title,
+    runtimeType: row.runtimeType as AgentSession["runtimeType"],
+    status: row.status as AgentSession["status"],
+    statusReason: row.statusReason,
+    credential: {
+      source: row.credentialSource as "user" | "project",
+      id: row.credentialId,
+      label: credLabel,
+      version: row.credentialVersion,
+    },
+    model: row.model,
+    agent: row.agent,
+    issue,
+    branch: null,
+    usage: {
+      inputTokens: row.usageInputTokens,
+      outputTokens: row.usageOutputTokens,
+    },
+    lastMessageAt: toIso(row.lastMessageAt),
+    createdAt: toIso(row.createdAt)!,
+  };
+}
+
+export async function listMySessions(
+  db: Db,
+  projectId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+  filters?: { status?: string; issueId?: string },
+) {
+  const access = await resolveProjectAccess(db, projectId, userId, isPlatformAdmin);
+  if (!can(access.projectRole, access.tenantRole, "session.own", { isPlatformAdmin })) {
+    throw forbidden();
+  }
+  await assertTenantActive(db, access.project.tenantId);
+
+  const conditions = [
+    eq(agentSessions.projectId, projectId),
+    eq(agentSessions.ownerUserId, userId),
+    ne(agentSessions.status, "archived"),
+  ];
+  if (filters?.status) conditions.push(eq(agentSessions.status, filters.status));
+  if (filters?.issueId) conditions.push(eq(agentSessions.issueId, filters.issueId));
+
+  const rows = await db
+    .select()
+    .from(agentSessions)
+    .where(and(...conditions))
+    .orderBy(desc(agentSessions.createdAt))
+    .limit(50);
+
+  return {
+    items: await Promise.all(rows.map((r) => mapSession(db, r))),
+    nextCursor: null as string | null,
+  };
+}
+
+export async function createSession(
+  db: Db,
+  projectId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+  platformDek: string,
+  runtimeMock: boolean,
+  input: CreateSessionInput,
+) {
+  const access = await resolveProjectAccess(db, projectId, userId, isPlatformAdmin);
+  if (!can(access.projectRole, access.tenantRole, "session.create", { isPlatformAdmin })) {
+    throw forbidden();
+  }
+  await assertTenantActive(db, access.project.tenantId);
+  if (access.project.archivedAt) {
+    throw new AppError(409, "PROJECT_ARCHIVED", "Project is archived");
+  }
+
+  const projectSettings = (access.project.settings ?? {}) as {
+    defaultRuntimeType?: "opencode" | "claude";
+  };
+  const runtimeType =
+    input.runtimeType ?? projectSettings.defaultRuntimeType ?? "opencode";
+  if (runtimeType !== "opencode") {
+    throw conflict("Only opencode runtime is supported in P0");
+  }
+
+  const cred = await resolveCredential(
+    db,
+    projectId,
+    userId,
+    access.project.credentialPolicy,
+    input,
+  );
+
+  const instance = await ensureMockOrBoundInstance(
+    db,
+    access.project.tenantId,
+    projectId,
+    runtimeType,
+    runtimeMock,
+    platformDek,
+  );
+  const workspace = await ensureWorkspace(
+    db,
+    access.project.tenantId,
+    projectId,
+    userId,
+    runtimeType,
+    instance.id,
+  );
+
+  const ctx = toInstanceCtx(instance, platformDek, runtimeMock);
+  const { ref } = await opencodeAdapter.createSession(ctx, {
+    title: input.title,
+    agent: input.agent,
+  });
+
+  const id = newId();
+  const title = input.title ?? "新会话";
+  const [row] = await db
+    .insert(agentSessions)
+    .values({
+      id,
+      tenantId: access.project.tenantId,
+      projectId,
+      workspaceId: workspace.id,
+      ownerUserId: userId,
+      title,
+      runtimeType,
+      runtimeSessionRef: ref,
+      credentialSource: cred.source,
+      credentialId: cred.id,
+      credentialVersion: cred.version,
+      issueId: input.issueId,
+      status: "active",
+      model: input.model,
+      agent: input.agent,
+    })
+    .returning();
+
+  const session = await mapSession(db, row!);
+
+  if (input.initialPrompt) {
+    await sendMessage(
+      db,
+      id,
+      userId,
+      isPlatformAdmin,
+      platformDek,
+      runtimeMock,
+      { parts: [{ type: "text", text: input.initialPrompt }] },
+    );
+  }
+
+  return session;
+}
+
+export async function getSession(
+  db: Db,
+  sessionId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+) {
+  const { row } = await requireSessionAccess(db, sessionId, userId, isPlatformAdmin);
+  return mapSession(db, row);
+}
+
+export async function sendMessage(
+  db: Db,
+  sessionId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+  platformDek: string,
+  runtimeMock: boolean,
+  input: { parts: Array<{ type: string; text?: string; path?: string; mime?: string; dataBase64?: string }>; model?: string; agent?: string },
+) {
+  const { row } = await requireSessionAccess(db, sessionId, userId, isPlatformAdmin);
+  if (!row.runtimeSessionRef) {
+    throw conflict("Session has no runtime ref");
+  }
+
+  const [ws] = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, row.workspaceId))
+    .limit(1);
+  if (!ws?.instanceId) throw conflict("Workspace not ready", { code: "WORKSPACE_NOT_READY" });
+
+  const [inst] = await db
+    .select()
+    .from(runtimeInstances)
+    .where(eq(runtimeInstances.id, ws.instanceId))
+    .limit(1);
+  if (!inst) throw conflict("Runtime instance missing", { code: "UPSTREAM_UNAVAILABLE" });
+
+  const ctx = toInstanceCtx(inst, platformDek, runtimeMock);
+  const messageId = newId();
+  await opencodeAdapter.sendMessage(ctx, row.runtimeSessionRef, {
+    parts: input.parts as never,
+    model: input.model ?? row.model ?? undefined,
+    agent: input.agent ?? row.agent ?? undefined,
+  });
+
+  await db
+    .update(agentSessions)
+    .set({
+      status: "busy",
+      lastMessageAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(agentSessions.id, sessionId));
+
+  return { messageId };
+}
+
+export async function getWorkspaceMe(
+  db: Db,
+  projectId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+  platformDek: string,
+  runtimeMock: boolean,
+) {
+  const access = await resolveProjectAccess(db, projectId, userId, isPlatformAdmin);
+  if (!can(access.projectRole, access.tenantRole, "workspace.own", { isPlatformAdmin })) {
+    throw forbidden();
+  }
+  const projectSettings = (access.project.settings ?? {}) as {
+    defaultRuntimeType?: "opencode" | "claude";
+  };
+  const runtimeType = projectSettings.defaultRuntimeType ?? "opencode";
+  const instance = await ensureMockOrBoundInstance(
+    db,
+    access.project.tenantId,
+    projectId,
+    runtimeType,
+    runtimeMock,
+    platformDek,
+  );
+  const ws = await ensureWorkspace(
+    db,
+    access.project.tenantId,
+    projectId,
+    userId,
+    runtimeType,
+    instance.id,
+  );
+  return {
+    id: ws.id,
+    projectId: ws.projectId,
+    ownerUserId: ws.ownerUserId,
+    runtimeType: ws.runtimeType as "opencode" | "claude",
+    status: ws.status,
+    capabilities: DEFAULT_CAPABILITIES,
+    createdAt: toIso(ws.createdAt)!,
+  };
+}
+
+export async function loadSessionRuntime(
+  db: Db,
+  sessionId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+  platformDek: string,
+  runtimeMock: boolean,
+) {
+  const { row } = await requireSessionAccess(db, sessionId, userId, isPlatformAdmin);
+  if (!row.runtimeSessionRef) throw conflict("Session has no runtime ref");
+
+  const [ws] = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, row.workspaceId))
+    .limit(1);
+  if (!ws?.instanceId) throw conflict("Workspace not ready");
+
+  const [inst] = await db
+    .select()
+    .from(runtimeInstances)
+    .where(eq(runtimeInstances.id, ws.instanceId))
+    .limit(1);
+  if (!inst) throw conflict("Runtime instance missing");
+
+  return {
+    session: row,
+    ctx: toInstanceCtx(inst, platformDek, runtimeMock),
+    runtimeSessionRef: row.runtimeSessionRef,
+  };
+}
+
+export { requireSessionAccess };

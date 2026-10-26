@@ -321,6 +321,126 @@ export const PageSchema = <T extends z.ZodTypeAny>(item: T) =>
     nextCursor: z.string().nullable(),
   });
 
+export const SessionStatusSchema = z.enum([
+  "creating",
+  "active",
+  "busy",
+  "idle",
+  "aborted",
+  "archived",
+  "failed",
+]);
+
+export const CredentialSourceSchema = z.enum(["user", "project"]);
+
+export const AgentSessionSchema = z.object({
+  id: UuidSchema,
+  projectId: UuidSchema,
+  workspaceId: UuidSchema,
+  ownerUserId: UuidSchema,
+  title: z.string(),
+  runtimeType: RuntimeTypeSchema,
+  status: SessionStatusSchema,
+  statusReason: z.string().nullable(),
+  credential: z.object({
+    source: CredentialSourceSchema,
+    id: UuidSchema,
+    label: z.string(),
+    version: z.number().int(),
+  }),
+  model: z.string().nullable(),
+  agent: z.string().nullable(),
+  issue: z
+    .object({
+      id: UuidSchema,
+      key: z.string(),
+      title: z.string(),
+      status: IssueStatusSchema,
+    })
+    .nullable(),
+  branch: z
+    .object({
+      repoId: UuidSchema,
+      branch: z.string(),
+      baseBranch: z.string(),
+      prUrl: z.string().nullable(),
+    })
+    .nullable(),
+  usage: z.object({
+    inputTokens: z.number().int(),
+    outputTokens: z.number().int(),
+  }),
+  lastMessageAt: TimestampSchema.nullable(),
+  createdAt: TimestampSchema,
+});
+
+export const CreateSessionReqSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+  runtimeType: RuntimeTypeSchema.optional(),
+  credentialSource: CredentialSourceSchema.optional(),
+  credentialId: UuidSchema.optional(),
+  issueId: UuidSchema.optional(),
+  model: z.string().optional(),
+  agent: z.string().optional(),
+  initialPrompt: z.string().max(32_000).optional(),
+});
+
+export const MessagePartSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text"), text: z.string() }),
+  z.object({ type: z.literal("file"), path: z.string() }),
+  z.object({
+    type: z.literal("image"),
+    mime: z.enum(["image/png", "image/jpeg", "image/webp"]),
+    dataBase64: z.string(),
+  }),
+]);
+
+export const SendMessageReqSchema = z.object({
+  parts: z.array(MessagePartSchema).min(1).max(20),
+  model: z.string().optional(),
+  agent: z.string().optional(),
+});
+
+export const SendMessageResSchema = z.object({
+  messageId: z.string(),
+});
+
+export const SessionMessageSchema = z.object({
+  id: z.string(),
+  role: z.enum(["user", "assistant"]),
+  parts: z.array(z.unknown()),
+  model: z.string().optional(),
+  usage: z
+    .object({
+      inputTokens: z.number().int(),
+      outputTokens: z.number().int(),
+    })
+    .optional(),
+  createdAt: TimestampSchema,
+  completedAt: TimestampSchema.optional(),
+});
+
+export const WorkspaceSchema = z.object({
+  id: UuidSchema,
+  projectId: UuidSchema,
+  ownerUserId: UuidSchema,
+  runtimeType: RuntimeTypeSchema,
+  status: z.string(),
+  capabilities: z.object({
+    v: z.literal(1),
+    files: z.boolean(),
+    find: z.boolean(),
+    lsp: z.boolean(),
+    pty: z.boolean(),
+    mcpRuntimeAdd: z.boolean(),
+    permissions: z.boolean(),
+    streaming: z.boolean(),
+    abort: z.boolean(),
+    usage: z.boolean(),
+  }),
+  createdAt: TimestampSchema,
+});
+
 export type Me = z.infer<typeof MeSchema>;
 export type Tenant = z.infer<typeof TenantSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
@@ -328,3 +448,5 @@ export type Issue = z.infer<typeof IssueSchema>;
 export type UserCredential = z.infer<typeof UserCredentialSchema>;
 export type ProjectCredential = z.infer<typeof ProjectCredentialSchema>;
 export type RuntimeInstance = z.infer<typeof RuntimeInstanceSchema>;
+export type AgentSession = z.infer<typeof AgentSessionSchema>;
+export type Workspace = z.infer<typeof WorkspaceSchema>;

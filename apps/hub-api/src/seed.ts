@@ -1,7 +1,16 @@
-import { createDb, tenantMemberships, tenants, users, projects, projectMemberships } from "@agenthub/db";
-import { eq } from "drizzle-orm";
+import {
+  createDb,
+  tenantMemberships,
+  tenants,
+  users,
+  projects,
+  projectMemberships,
+  userCredentials,
+  credentialVersions,
+} from "@agenthub/db";
+import { and, eq } from "drizzle-orm";
 import { env } from "./env.js";
-import { placeholderTenantDek } from "./lib/crypto.js";
+import { encryptSecret, last4OfSecret, placeholderTenantDek } from "./lib/crypto.js";
 import { newId } from "./lib/id.js";
 import { ensurePasswordHash } from "./services/auth.js";
 import { findUserByEmail } from "./services/users.js";
@@ -139,6 +148,38 @@ async function main() {
         role: "developer",
       });
     }
+  }
+
+  // Dev credential for session Facade (secret never returned by API)
+  const [existingCred] = await db
+    .select()
+    .from(userCredentials)
+    .where(
+      and(eq(userCredentials.userId, admin.id), eq(userCredentials.label, "dev-mock")),
+    )
+    .limit(1);
+  if (!existingCred) {
+    const credId = newId();
+    const secret = "sk-mock-local-only";
+    await db.insert(userCredentials).values({
+      id: credId,
+      userId: admin.id,
+      provider: "opencode",
+      label: "dev-mock",
+      metadata: { defaultModel: "mock" },
+      last4: last4OfSecret(secret),
+      status: "active",
+      currentVersion: 1,
+    });
+    await db.insert(credentialVersions).values({
+      credentialKind: "user",
+      credentialId: credId,
+      version: 1,
+      secretCiphertext: encryptSecret(secret, env.PLATFORM_DEK),
+      keyVersion: 1,
+      createdBy: admin.id,
+    });
+    logger.info("created admin dev-mock credential");
   }
 
   logger.info("seed complete");

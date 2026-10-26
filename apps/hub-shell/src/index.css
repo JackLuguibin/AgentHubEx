@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@source "../../../packages/hub-ui-kit/src";
+@source "../../../packages/workbench/src";
+
+@theme {
+  --color-ah-bg: #f5f7fa;
+  --color-ah-white: #fff;
+  --color-ah-text: #1d2939;
+  --color-ah-muted: #667085;
+  --color-ah-line: #e4e7ec;
+  --color-ah-accent: #3659e3;
+  --color-ah-accent-soft: #eef2ff;
+  --color-ah-accent-hover: #2948ca;
+  --color-ah-green: #067647;
+  --color-ah-green-soft: #ecfdf3;
+  --shadow-ah: 0 2px 8px #10182804;
+  --spacing-sidebar: 236px;
+  --font-ah:
+    Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", system-ui, sans-serif;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    overflow: hidden;
+    background: var(--color-ah-bg);
+    color: var(--color-ah-text);
+    font-family: var(--font-ah);
+    font-size: 13px;
+  }
+}

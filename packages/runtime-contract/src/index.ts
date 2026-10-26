@@ -1,14 +1,33 @@
 import { z } from "zod";
 
-/** Skeleton aligned with docs/architecture/11-runtime-contract.md */
+/** Aligned with docs/architecture/11-runtime-contract.md */
 
 export type RuntimeType = "opencode" | "claude";
 
 export type Capabilities = {
+  v: 1;
+  files: boolean;
+  find: boolean;
+  lsp: boolean;
   pty: boolean;
-  fileWrite: boolean;
-  mcp: boolean;
+  mcpRuntimeAdd: boolean;
   permissions: boolean;
+  streaming: boolean;
+  abort: boolean;
+  usage: boolean;
+};
+
+export const DEFAULT_CAPABILITIES: Capabilities = {
+  v: 1,
+  files: false,
+  find: false,
+  lsp: false,
+  pty: false,
+  mcpRuntimeAdd: false,
+  permissions: false,
+  streaming: true,
+  abort: true,
+  usage: false,
 };
 
 export type EnvelopeType =
@@ -62,11 +81,84 @@ export type Envelope<T extends EnvelopeType = EnvelopeType> = {
   raw?: unknown;
 };
 
+export type MessagePart =
+  | { type: "text"; text: string }
+  | { type: "file"; path: string }
+  | {
+      type: "image";
+      mime: "image/png" | "image/jpeg" | "image/webp";
+      dataBase64: string;
+    };
+
+export type MessageInput = {
+  parts: MessagePart[];
+  model?: string;
+  agent?: string;
+};
+
+export type InstanceCtx = {
+  baseUrl: string;
+  auth?: { username: string; password: string };
+  tlsVerify?: boolean;
+  /** When true, adapter uses in-process mock (no upstream HTTP). */
+  mock?: boolean;
+};
+
+export type Health = { ok: boolean; latencyMs?: number; version?: string };
+
+export interface RuntimeAdapter {
+  readonly type: RuntimeType;
+  health(i: InstanceCtx): Promise<Health>;
+  capabilities(i: InstanceCtx): Promise<Capabilities>;
+  createSession(
+    i: InstanceCtx,
+    input: { title?: string; agent?: string },
+  ): Promise<{ ref: string }>;
+  sendMessage(i: InstanceCtx, ref: string, msg: MessageInput): Promise<void>;
+  abort(i: InstanceCtx, ref: string): Promise<void>;
+  listMessages(
+    i: InstanceCtx,
+    ref: string,
+    page: { cursor?: string; limit?: number },
+  ): Promise<{
+    items: Array<{
+      id: string;
+      role: "user" | "assistant";
+      parts: MessagePart[];
+      createdAt: string;
+    }>;
+    nextCursor: string | null;
+  }>;
+  respondPermission(
+    i: InstanceCtx,
+    ref: string,
+    reqId: string,
+    decision: "allow" | "deny" | "always",
+  ): Promise<void>;
+  events(
+    i: InstanceCtx,
+    filter: { sessionRef?: string },
+    signal?: AbortSignal,
+  ): AsyncIterable<Omit<Envelope, "seq" | "sessionId"> & { sessionRef?: string }>;
+  setCredential?(
+    i: InstanceCtx,
+    cred: { provider: string; secret: string },
+    scope?: { sessionRef?: string },
+  ): Promise<void>;
+  clearCredential?(i: InstanceCtx, provider: string): Promise<void>;
+}
+
 export const CapabilitiesSchema = z.object({
+  v: z.literal(1),
+  files: z.boolean(),
+  find: z.boolean(),
+  lsp: z.boolean(),
   pty: z.boolean(),
-  fileWrite: z.boolean(),
-  mcp: z.boolean(),
+  mcpRuntimeAdd: z.boolean(),
   permissions: z.boolean(),
+  streaming: z.boolean(),
+  abort: z.boolean(),
+  usage: z.boolean(),
 });
 
 export const EnvelopeTypeSchema = z.enum([
@@ -83,8 +175,20 @@ export const EnvelopeTypeSchema = z.enum([
   "error",
 ]);
 
-export interface RuntimeAdapter {
-  readonly type: RuntimeType;
-  health(i: unknown): Promise<{ ok: boolean; latencyMs?: number }>;
-  capabilities(i: unknown): Promise<Capabilities>;
+export function makeEnvelope<T extends EnvelopeType>(
+  sessionId: string,
+  seq: number,
+  type: T,
+  data: EnvelopeData[T],
+  raw?: unknown,
+): Envelope<T> {
+  return {
+    v: 1,
+    seq,
+    sessionId,
+    ts: new Date().toISOString(),
+    type,
+    data,
+    ...(raw !== undefined ? { raw } : {}),
+  };
 }

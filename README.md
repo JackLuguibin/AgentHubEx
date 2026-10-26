@@ -39,12 +39,35 @@ pnpm --filter @agenthub/auth test
 
 | 路径 | 包 |
 |---|---|
+| `apps/hub-api` | Hub Facade / 控制面 API |
+| `apps/hub-shell` | React SPA（Vite） |
 | `packages/db` | Drizzle schema + 迁移 |
 | `packages/auth` | JWT / argon2 / RBAC |
-| `packages/domain` | zod 领域类型骨架 |
-| `packages/runtime-contract` | Worker/Adapter 契约骨架 |
+| `packages/domain` | zod 领域类型 |
+| `packages/runtime-contract` | Worker/Adapter 契约 |
+| `packages/adapter/*` | OpenCode adapter（含 mock） |
+| `packages/agent-client` | Facade REST/SSE 客户端 |
+| `packages/workbench` | 会话工作台组件 |
+| `packages/hub-ui-kit` | shadcn 风格 UI 组合 |
 
-根脚本：`pnpm build` · `pnpm test` · `pnpm lint` · `pnpm db:migrate`
+根脚本：`pnpm build` · `pnpm test` · `pnpm lint` · `pnpm db:migrate` · `pnpm seed`
+
+### P0-03 本地联调（SPA + Facade 流式）
+
+```bash
+docker compose -f deploy/compose/compose.intranet.yml up -d
+cp .env.example .env
+pnpm install
+pnpm db:migrate
+pnpm seed
+pnpm --filter @agenthub/hub-api dev
+pnpm --filter @agenthub/hub-shell dev
+# http://localhost:5173 登录 admin@example.com / admin-password-change-me
+# → Workbench → 新建会话 → 发消息 → 见 SSE delta
+# DevTools Network：仅 localhost，无公网 CDN/字体/LLM
+```
+
+内网 `opencode serve` 说明见 [`deploy/compose/README.runtime.md`](deploy/compose/README.runtime.md)。
 
 ## License
 
