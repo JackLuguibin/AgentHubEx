@@ -150,7 +150,7 @@ HP --> GIT : 输出凭据 (不缓存到磁盘)
 @enduml
 ```
 
-> 风险说明：出网默认放开（ADR-003），Agent 理论上能读取 helper 返回的 token。缓解：建议用户使用**细粒度、仅限项目仓库、短期**的 PAT；Phase 3 可改为 Hub Git 代理（`https://hub/git/...` 智能 HTTP 反代），容器内只持有代理 token。
+> 风险说明：`internet-lab` 出网较松时，Agent 理论上能读取 helper 返回的 token 并外传。**intranet/airgap** 默认拒公网 + Git 在 allowlist，外传面更小。缓解：细粒度/短期 PAT；Phase 3 可改为 Hub Git 代理（`https://hub/git/...`），容器内只持代理 token。
 
 ## 14.6 从 Issue 开会话时的分支
 

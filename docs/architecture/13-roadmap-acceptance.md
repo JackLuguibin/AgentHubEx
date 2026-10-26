@@ -12,10 +12,10 @@ sunday are closed
 [P0 monorepo/compose/schema/JWT-RBAC] as [p0a] lasts 5 days
 [P0 领域 API] as [p0b] lasts 5 days
 [p0b] starts at [p0a]'s end
-[P0 vendor opencode app 联调] as [p0c] lasts 4 days
+[P0 React SPA + workbench/agent-client 骨架] as [p0c] lasts 5 days
 [p0c] starts at [p0a]'s start
-[P0 Hub Shell 脚手架+看板骨架] as [p0d] lasts 4 days
-[p0d] starts at [p0a]'s start
+[P0 Facade 会话联调（opencode serve）] as [p0d] lasts 4 days
+[p0d] starts at [p0c]'s end
 
 -- Phase 1 MVP --
 [P1 远程实例登记 + Facade 反代/SSE] as [p1a] lasts 10 days
@@ -26,10 +26,10 @@ sunday are closed
 [p1c] starts at [p0b]'s end
 [P1 公共空间 + 同步] as [p1d] lasts 8 days
 [p1d] starts at [p0b]'s end
-[P1 Workbench 接 Facade] as [p1e] lasts 6 days
+[P1 React Workbench MVP] as [p1e] lasts 10 days
 [p1e] starts at [p1a]'s start
 [P1 项目看板 + Issue 开会话] as [p1f] lasts 8 days
-[p1f] starts at [p0d]'s end
+[p1f] starts at [p0c]'s end
 [P1 隔离与凭据验收] as [p1g] lasts 4 days
 [p1g] starts at [p1c]'s end
 
@@ -93,11 +93,11 @@ LP --> P4
 
 | 阶段 | 交付物 | 完成定义 |
 |---|---|---|
-| P0 | monorepo、compose(pg/redis/minio)、Drizzle 迁移、JWT/RBAC、领域 CRUD、Shell 脚手架、vendor app | `pnpm dev` 一键起；RBAC 单测；本地 opencode serve 可被 vendor app 连通 |
-| P1 | external 登记 + 反代 + SSE、双凭据、配置中心 + Apply + sync、公共空间、Workbench 接 Facade、看板 | 13.4 中 A1–A9 全通过 |
-| P2 | node-agent、调度、idle/配额、自动推送、回滚、受保护前缀 | managed 工作区 p95 就绪 < 120s；节点故障时新会话调度到其它节点 |
+| P0 | monorepo、**compose.intranet**、Drizzle、JWT/RBAC、领域 CRUD、React SPA（无外链）、workbench 骨架、offline-bundle 约定 | `pnpm dev` + intranet compose；RBAC 单测；Facade 流式会话；静态检查无公网 URL |
+| P1 | external 反代 + SSE、双凭据、配置 Apply、公共空间、React Workbench MVP、看板 | 13.4 中 A1–A9 全通过 |
+| P2 | node-agent、调度、配额、自动推送/回滚、Workbench 编辑/终端增强 | managed 工作区 p95 就绪 < 120s；capabilities 驱动终端入口 |
 | P3 | worker/claude、Bundle 双引擎、LLM Proxy、计量 | 契约测试双引擎通过；容器内无 Provider Key |
-| P4 | mTLS、KMS、RLS、OTel 告警、上游同步流程（数据面保持 Docker，见 ADR-002） | 渗透测试无高危；告警演练通过 |
+| P4 | mTLS、KMS、RLS、OTel 告警（数据面保持 Docker，见 ADR-002） | 渗透测试无高危；告警演练通过 |
 
 ## 13.4 首版（P1）验收用例
 
@@ -112,15 +112,17 @@ LP --> P4
 | A7 | 双凭据 | 用户 A 用个人 Key，用户 B 用项目 Key | usage 记录来源正确；GET 凭据接口无 secret |
 | A8 | 用户隔离 | B 访问 A 的 sessionId / workspaceId / 反代路径 | 全部 404 |
 | A9 | 租户隔离 | 租户 T2 用户访问 T1 任意资源 | 全部 404；审计有记录 |
-| A10 | 阻断 | Workbench 尝试 `PUT /agent/auth/...`、`PATCH /agent/config` | 403 BLOCKED_UPSTREAM_PATH |
+| A10 | 阻断 | Workbench 尝试 `PUT /agent/auth/...`、`PATCH /agent/config`、`GET /agent/event`、`POST /agent/session` | 403 BLOCKED_UPSTREAM_PATH |
 | A11 | 成员移除 | 移除 B | B 的活跃会话 abort；B 无法再进入工作区 |
-| A12 | UI 规范 | 代码审查 | 无自研底层控件（Dialog/Select 等均来自 Kobalte） |
+| A12 | UI / 通道 | 代码审查 | 全站 React 单 SPA；shadcn 底层；会话 SSE 仅 Facade；文件走 agent 白名单；无裸 fetch |
+| N1–N4 | 内网 / 离线 | 见 [18.7](18-intranet-offline.md) | 断公网可登录开会话；无浏览器公网请求；Worker allowlist；offline-bundle 可装 |
 
 ## 13.5 明确不做（首版）
 
 - OpenCode 服务端内核多租户 ACL；
-- 大改 `packages/app` 渲染核心或另起 React IDE；
-- 自研 Design System / 拖拽底层；
+- Vendor / 嵌入 OpenCode Web 或异栈 iframe；浏览器经 `/agent` 打会话事件或创建会话；
+- P1 对齐 OpenCode Desktop 全量 IDE（LSP/完整 PTY 等）；
+- 自研 Design System / 拖拽底层；引入 Next.js/RSC；独立 `/wb/*` 路由；
 - 完整 Jira 工作流、燃尽图；
 - SSH 手改远程 `opencode.json`；
 - 多人共容器、公共空间实时协同、会话分享、前端持久化 Key、计费收银台。
@@ -129,9 +131,9 @@ LP --> P4
 
 | 风险 | 影响 | 缓解 |
 |---|---|---|
-| 上游 OpenCode API 变动 | 反代/adapter 失效 | 锁版本；OpenAPI diff 脚本；未知路径默认阻断 |
+| 上游 OpenCode API 变动 | 反代/adapter 失效 | 锁版本；OpenAPI diff；未知路径默认阻断；前端只认 runtime-contract |
 | OpenCode `/auth` 实例级 | 同用户多凭据会话需串行注入 | P1 串行化；P3 LLM Proxy 根治 |
 | 上游不支持热加载 agents/skills | Apply 需重启进程 | 会话 idle 时再重启；保留会话存储 |
 | external 实例被共用 | 隔离失效 | `isolation=shared` 仅单活跃用户；正式环境禁止 |
-| 许可证 | vendor 合规 | P0 确认许可证，保留 NOTICE |
+| 自研 Workbench 范围膨胀 | P1 延期 | 严格 P1 能力表；P2+ 增强 |
 | Claude SDK 能力与 OpenCode 不对等 | Workbench 体验差异 | capabilities 降级；契约测试 |

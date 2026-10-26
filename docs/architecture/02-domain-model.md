@@ -244,7 +244,9 @@ Project "1" -- "*" ProjectIssue
 @enduml
 ```
 
-## 2.3 物理表（Drizzle / PostgreSQL）
+## 2.3 物理表（Drizzle schema → PostgreSQL）
+
+表结构以 `packages/db/schema` 为 SoT（ADR-009）；下列为逻辑说明。业务访问只通过 Drizzle，不写裸 SQL。
 
 所有业务表含 `tenant_id`（平台级表 `users`、`nodes` 除外），并以复合索引开头。
 

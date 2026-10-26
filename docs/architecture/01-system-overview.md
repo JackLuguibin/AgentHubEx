@@ -49,8 +49,8 @@ LAYOUT_TOP_DOWN()
 Person(user, "用户")
 
 System_Boundary(hub, "AgentHubEx") {
-  Container(shell, "Hub Shell", "SolidJS + Kobalte + Tailwind", "租户/项目/看板/实例/配置/凭据/公共文件")
-  Container(wb, "Workbench", "SolidJS (vendor OpenCode packages/app)", "会话 IDE")
+  Container(shell, "Hub Shell SPA", "React + Vite + shadcn", "管理面 + Workbench 路由")
+  Container(wb, "Workbench module", "packages/workbench", "会话/流式事件/文件树；只连 Facade")
   Container(api, "hub-api", "TypeScript + Hono", "Gateway/Facade + Control Plane + Apply 引擎")
   Container(worker_q, "hub-jobs", "BullMQ Worker (同 hub-api 代码)", "ApplyJob / SyncJob / 健康探测 / 回收")
   ContainerDb(pg, "PostgreSQL", "Drizzle", "元数据")
@@ -70,7 +70,7 @@ Rel(user, shell, "HTTPS")
 Rel(user, wb, "HTTPS")
 Rel(shell, api, "REST /v1", "JWT")
 Rel(wb, api, "/v1/workspaces/{id}/agent/*", "JWT + SSE")
-Rel(api, pg, "SQL")
+Rel(api, pg, "Drizzle ORM")
 Rel(api, redis, "")
 Rel(api, s3, "S3 API")
 Rel(worker_q, pg, "")
@@ -104,7 +104,7 @@ Container_Boundary(api, "hub-api") {
   Component(cfs, "CommonSpace Service", "packages/common-fs", "路径安全、版本、同步")
   Component(reg, "Instance Registry", "", "external 登记 / managed 回写 / 健康")
   Component(audit, "Audit & Metering", "", "审计日志、用量")
-  Component(repo, "Repositories", "Drizzle", "带 tenant_id 强过滤")
+  Component(repo, "Repositories", "Drizzle ORM", "schema SoT；禁止裸 SQL；tenant_id 强过滤")
 }
 
 Rel(mw, ctl, "")
@@ -160,7 +160,8 @@ package packages {
   [config-bundle]
   [common-fs]
   [hub-ui-kit]
-  [opencode-app]
+  [workbench]
+  [agent-client]
   package adapter {
     [adapter/common]
     [adapter/opencode]
@@ -171,8 +172,10 @@ package packages {
 
 [hub-shell] --> [hub-ui-kit]
 [hub-shell] --> [domain]
-[hub-shell] --> [opencode-app] : 路由挂载 Workbench
-[opencode-app] ..> [runtime-contract] : 仅类型
+[hub-shell] --> [workbench]
+[workbench] --> [agent-client]
+[workbench] --> [hub-ui-kit]
+[agent-client] --> [runtime-contract]
 
 [hub-api] --> [domain]
 [hub-api] --> [auth]
@@ -203,12 +206,12 @@ package packages {
 
 - `domain` 不依赖任何运行时库（纯类型 + zod schema）。
 - `apps/*` 之间不得互相 import，只能通过 HTTP 契约通信。
-- `opencode-app` 只允许修改 `platform/`、`context/server*`、路由守卫三处适配层（见 [10](10-frontend.md)）。
+- 前端只通过 `agent-client` 访问工作区 agent API；不得直连节点 URL（见 [10](10-frontend.md)）。
 
 ```text
 AgentHubEx/
   apps/{hub-shell,hub-api,node-agent,agenthub-sync,worker/{common,opencode,claude}}
-  packages/{domain,auth,db,runtime-contract,config-bundle,common-fs,hub-ui-kit,opencode-app,adapter/{common,opencode,claude}}
+  packages/{domain,auth,db,runtime-contract,config-bundle,common-fs,hub-ui-kit,workbench,agent-client,adapter/{common,opencode,claude}}
   deploy/{docker,compose}
   docs/architecture/
 ```
@@ -235,9 +238,10 @@ SC --> H : RuntimeInstance(ready)
 H -> R : 配置 Apply（若 revision 落后）
 H -> R : 注入凭据 + 创建上游 session
 H --> S : AgentSession{id, workspaceId, runtimeType}
-S -> W : 路由跳转 /wb/{workspaceId}?session=...
-W -> H : /v1/workspaces/{id}/agent/* + SSE
-H -> R : 反代（代填节点认证）
-R --> W : 事件流（经 Hub）
+S -> W : /p/{projectId}/workbench?session=...
+W -> H : Facade SSE /v1/sessions/{id}/events
+W -> H : 文件等走 /v1/workspaces/{w}/agent/file|find|...
+H -> R : adapter / 白名单反代（代填节点认证）
+R --> W : 归一事件与文件响应（经 Hub）
 @enduml
 ```

@@ -1,20 +1,22 @@
 # 15 数据库 DDL（PostgreSQL 16）
 
-> 规范以本文件 SQL 为准，`packages/db/schema/*.ts`（Drizzle）须与之一一对应，迁移由 `drizzle-kit generate` 产出后人工审阅。
+> **权威（ADR-009）**：`packages/db/schema/*.ts`（Drizzle）。本文件 SQL 为可读对照，须与 schema **一致**；冲突时改 schema 并 `drizzle-kit generate`，再回写本节。  
+> 业务代码经 Drizzle Repository 访问数据库，**禁止**手写业务 SQL（例外见 ADR-009）。
 
 ## 15.1 约定
 
 | 项 | 约定 |
 |---|---|
+| ORM | Drizzle；迁移 `drizzle-kit generate` → 审阅 → apply |
 | 主键 | `uuid`，应用层生成 UUIDv7（ADR-004） |
-| 时间 | `timestamptz`，统一 `created_at` / `updated_at`（触发器维护） |
+| 时间 | `timestamptz`，统一 `created_at` / `updated_at`（可用 DB 触发器或 Drizzle `$onUpdate`） |
 | 命名 | 表复数 snake_case；外键 `<entity>_id`；索引 `ix_<table>_<cols>`；唯一 `uq_<table>_<cols>` |
-| 租户 | 业务表必有 `tenant_id`，且外键链能推导出相同租户 |
-| 枚举 | 使用 `text + CHECK`，不用 PG enum（便于迁移） |
+| 租户 | 业务表必有 `tenant_id`；Repository 查询强制带租户谓词 |
+| 枚举 | 使用 `text + CHECK`（Drizzle `text` + check），不用 PG enum |
 | 软删除 | 仅 `common_files`、`project_issues` 使用 `deleted_at` |
 | 密文 | `bytea`，配 `key_version int` |
 | JSON | `jsonb`，结构由 zod 校验 |
-| 分区 | `audit_logs`、`usage_records` 按月 RANGE 分区（pg_partman 或启动任务预建） |
+| 分区 | `audit_logs`、`usage_records` 按月 RANGE（运维脚本可例外用 SQL；业务读写仍走 ORM） |
 
 ## 15.2 ER 总览
 

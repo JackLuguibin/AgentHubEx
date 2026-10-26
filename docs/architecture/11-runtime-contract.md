@@ -58,23 +58,66 @@ type Envelope = {
   v: 1
   seq: number              // Gateway 分配，per session 单调
   sessionId: string        // Hub id
-  ts: string
-  type:
-    | 'session.status'     // busy | idle | error
-    | 'message.start'
-    | 'assistant.delta'    // 文本增量
-    | 'assistant.message'  // 完整消息
-    | 'tool_call'          // {toolId, name, input}
-    | 'tool_result'        // {toolId, output, isError}
-    | 'permission_request' // {reqId, tool, input, options}
-    | 'permission_resolved'
-    | 'usage'              // {model, inputTokens, outputTokens, cacheRead?, cost?}
-    | 'result'             // 一轮结束 {stopReason, summary?}
-    | 'error'              // {code, message}
-  data: unknown
+  ts: string               // ISO8601
+  type: EnvelopeType
+  data: EnvelopeData[EnvelopeType]
   raw?: unknown            // 调试开关下保留上游原文
 }
+
+type EnvelopeType =
+  | 'session.status'
+  | 'message.start'
+  | 'assistant.delta'
+  | 'assistant.message'
+  | 'tool_call'
+  | 'tool_result'
+  | 'permission_request'
+  | 'permission_resolved'
+  | 'usage'
+  | 'result'
+  | 'error'
+
+type EnvelopeData = {
+  'session.status': { status: 'busy' | 'idle' | 'error'; reason?: string }
+  'message.start': { messageId: string; role: 'assistant' }
+  'assistant.delta': { messageId: string; text: string }
+  'assistant.message': { messageId: string; text: string }
+  'tool_call': { toolId: string; name: string; input: unknown }
+  'tool_result': { toolId: string; output: unknown; isError: boolean }
+  'permission_request': {
+    reqId: string; tool: string; input: unknown
+    options: Array<'allow' | 'deny' | 'always'>
+  }
+  'permission_resolved': {
+    reqId: string; decision: 'allow' | 'deny' | 'always' | 'timeout'
+  }
+  'usage': {
+    model: string; inputTokens: number; outputTokens: number
+    cacheRead?: number; cost?: number
+  }
+  'result': { stopReason: string; summary?: string }
+  'error': { code: string; message: string }
+}
 ```
+
+### Capabilities（与 Workspace 嵌入字段同形，见 [16](16-api-schema.md)）
+
+```ts
+type Capabilities = {
+  v: 1
+  files: boolean
+  find: boolean
+  lsp: boolean
+  pty: boolean
+  mcpRuntimeAdd: boolean
+  permissions: boolean
+  streaming: boolean   // 是否产生 assistant.delta
+  abort: boolean
+  usage: boolean
+}
+```
+
+前端只读 `Workspace.capabilities`；无独立 `GET .../capabilities`。缺失能力时对应 UI 隐藏，API 可返回 `501`。
 
 ## 11.4 事件映射
 

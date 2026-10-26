@@ -187,14 +187,22 @@ H -> H : INSERT runtime_instances(mode=managed)
 | 能力 | `cap-drop=ALL`，`no-new-privileges`，Docker 默认 seccomp | 不写自定义 seccomp/AppArmor |
 | 挂载 | 本 workspace 卷 `/workspace`(rw) + `project-common`(ro)；禁止 docker.sock | |
 | 网络 | 所有工作区共用 `agenthub-ws` bridge，`icc=false`（容器间不通）；worker 端口只绑节点内网 IP | 不做每工作区独立网络 |
-| 出网 | **默认放开**；`DOCKER-USER` 链仅拒绝云元数据地址与控制面网段；DNS 日志审计 | 不做域名白名单 |
+| 出网 | **按部署档（ADR-003/011）**：`intranet`/`airgap` 默认拒绝公网 + **allowlist**（LLM/Git 等）；`internet-lab` 默认放开。各档均拒云元数据与控制面网段；DNS 日志建议开 | 内网档必须配置 allowlist |
 | 资源 | `--cpus`、`--memory`、`--pids-limit=1024`；磁盘用定时 `du` 巡检超额告警（软限制） | 不做 xfs 硬配额 |
 | 凭据 | 只在进程内存或 OpenCode auth 存储（`/run/agenthub` tmpfs）；不落 workspace 卷 | |
 
 默认规格：`2 CPU / 4 GiB / 磁盘软限 20 GiB`，项目可调。
 
 ```bash
-# node-agent 在节点初始化时写入的出网规则（示意）
+# node-agent 出网规则示意（intranet / airgap 默认）
+# 1) 拒绝元数据与控制面
 iptables -I DOCKER-USER -s 172.30.0.0/16 -d 169.254.169.254 -j DROP
 iptables -I DOCKER-USER -s 172.30.0.0/16 -d ${CONTROL_PLANE_CIDR} -j DROP
+# 2) 放行 allowlist（节点/租户配置的 CIDR 或域名解析后的地址，含内网 LLM/Git）
+#    for h in $EGRESS_ALLOWLIST; do iptables -I DOCKER-USER -s 172.30.0.0/16 -d $h -j ACCEPT; done
+# 3) 默认拒绝其余（公网）
+iptables -A DOCKER-USER -s 172.30.0.0/16 -j DROP
+# internet-lab：省略步骤 2–3，仅保留步骤 1
 ```
+
+**allowlist 来源**：节点环境变量 `EGRESS_ALLOWLIST`（CIDR 列表）+ 项目/租户配置的 LLM `baseUrl` / Git host 经 Hub 下发到 node-agent（见 [18.3](18-intranet-offline.md)）。  

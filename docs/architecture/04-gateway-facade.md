@@ -27,12 +27,14 @@ h -[dashed]-> e
 @enduml
 ```
 
-## 4.2 两类会话通道
+## 4.2 两类客户端通道（已收紧）
 
 | 通道 | 路径 | 使用方 | 说明 |
 |---|---|---|---|
-| **统一会话契约** | `/v1/projects/{p}/sessions`、`/v1/sessions/{id}/*` | Hub Shell、SDK、看板 | 引擎无关，经 adapter 归一 |
-| **原生 Agent 反代** | `/v1/workspaces/{w}/agent/*` | Workbench（OpenCode app） | 透传 OpenCode OpenAPI，带白名单/裁剪；Claude worker 实现同子集 |
+| **A. 统一会话 Facade** | `/v1/projects/{p}/sessions`、`/v1/sessions/{id}/*` | **Workbench 聊天主路径**、Shell、SDK、看板 | 引擎无关；消息/权限/SSE 只走这里 |
+| **B. 原生 Agent 反代** | `/v1/workspaces/{w}/agent/*` | Workbench **文件树 / find / PTY** | 白名单透传；**不**承载会话创建与事件流 |
+
+`agent-client` 约定：会话 API → A；`files`/`find`/`pty`（及只读 `agent`/`mcp`/`config`）→ B。浏览器不得打开 `/agent/event` 或经 B `POST /session`。
 
 ## 4.3 反代请求处理
 
@@ -45,7 +47,7 @@ database "Redis\n(route cache)" as RC
 database PG
 participant "Runtime\n(baseUrl)" as R
 
-W -> G : GET /v1/workspaces/w1/agent/session\nAuthorization: Bearer JWT
+W -> G : GET /v1/workspaces/w1/agent/file?path=...\nAuthorization: Bearer JWT
 G -> G : authn + authz(workspace.own)
 G -> RC : route:w1
 alt miss
@@ -53,35 +55,35 @@ alt miss
   G -> RC : 缓存 60s（不缓存明文，仅 instanceId）
 end
 G -> G : 路径白名单匹配
-alt 命中阻断表 (/auth/*, /config PATCH, /global/*)
+alt 命中阻断表
   G --> W : 403 BLOCKED_UPSTREAM_PATH
 else 放行
   G -> G : 剥离客户端 Authorization/Cookie\n注入 Basic Auth (解密于内存)
   G -> R : 转发 (timeout, 体积上限)
   R --> G : 响应
-  G -> G : 响应裁剪器\n(session 列表按 Hub 归属过滤,\n去除 baseUrl/路径泄露字段)
+  G -> G : 响应裁剪（去除 baseUrl 等泄露字段）
   G --> W : 响应
 end
 @enduml
 ```
 
-### 路径策略表（OpenCode 上游）
+### 路径策略表（浏览器 → `/agent/*` → OpenCode 上游）
 
 | 上游路径 | 方法 | 策略 |
 |---|---|---|
-| `/session`, `/session/:id/**` | GET/POST/DELETE | 放行；`GET /session` 结果与 Hub `agent_sessions` 交集过滤 |
-| `/event` | GET (SSE) | 放行，走 SSE 专用代理 |
-| `/file/**`, `/find/**` | GET | 放行（工作区内） |
-| `/agent`, `/mcp` | GET | 放行 |
-| `/mcp` | POST | **阻断**（仅 Apply 引擎内部调用） |
-| `/config` | GET | 放行（响应中脱敏 secret） |
+| `/file/**`, `/find/**` | GET | **放行**（工作区内） |
+| `/agent`, `/mcp` | GET | **放行**（只读发现） |
+| `/config` | GET | **放行**（响应脱敏 secret） |
+| `/pty/**` | WS | **放行**（P2+；受 `capabilities.pty` 与租户开关） |
+| `/session`, `/session/:id/**` | * | **阻断**（会话一律 Facade；adapter 内网直连上游） |
+| `/event` | GET | **阻断**（会话 SSE 仅 `/v1/sessions/{id}/events`；Gateway 内网拉上游 `/event`） |
+| `/mcp` | POST | **阻断**（仅 Apply 引擎内部） |
 | `/config` | PATCH | **阻断** |
 | `/auth/**` | * | **阻断**，由 Hub 代写 |
-| `/global/**`、`/project` 切换类 | * | **阻断**（避免越出工作区） |
-| `/pty/**` | WS | 放行（Phase 1 可选，受租户开关） |
-| 其它未知 | * | 默认**阻断**，日志告警，便于升级上游时发现新接口 |
+| `/global/**`、`/project` 切换类 | * | **阻断** |
+| 其它未知 | * | 默认**阻断**，日志告警 |
 
-`POST /session` 经反代创建时：Gateway 先在 Hub 写入 `agent_sessions`（使用用户在 Workbench 中选定或默认凭据），再转发；上游返回 id 后回填 `runtime_session_ref`。
+会话创建只走 `POST /v1/projects/{p}/sessions`（见 4.6）：Facade → adapter 内网 `createSession` → 上游，再写入 `agent_sessions.runtime_session_ref`。
 
 ## 4.4 SSE 代理
 
@@ -126,7 +128,8 @@ end note
 | POST | `/v1/sessions/{id}/messages` | session.own | `{parts:[{type:'text',text}], model?, agent?}` |
 | POST | `/v1/sessions/{id}/abort` | session.own | |
 | POST | `/v1/sessions/{id}/permissions/{reqId}` | session.own | `{decision: allow|deny|always}` |
-| GET | `/v1/sessions/{id}/events` | session.own | SSE |
+| GET | `/v1/sessions/{id}/events` | session.own | SSE（Bearer 或 ticket） |
+| POST | `/v1/sessions/{id}/events/ticket` | session.own | `{ ticket: string, expiresIn: 60 }`；单次、绑定 session+user |
 | GET | `/v1/sessions/{id}/messages` | session.own | 历史，分页 |
 | DELETE | `/v1/sessions/{id}` | session.own | 归档 |
 | GET | `/v1/projects/{p}/credentials/options` | session.create | 可选凭据（元数据） |

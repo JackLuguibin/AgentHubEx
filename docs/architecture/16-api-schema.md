@@ -115,6 +115,8 @@ type ProjectSettings = {
   workspaceSpec: { cpu: number; memMb: number; diskGb: number } // 默认 2/4096/20
   defaultRuntimeType: RuntimeType   // 默认 opencode
   issuePromptTemplate?: string
+  /** 内网档建议配置：凭据 baseUrl 主机名须匹配（防误填公网）；空=不校验 */
+  allowedProviderHosts?: string[]   // 如 ["llm.internal.example", "*.corp.local"]
 }
 // GET   /v1/tenants/{t}/projects?q=&archived= → Page<Project>
 // POST  /v1/tenants/{t}/projects { key, name, description?, credentialPolicy?, settings? } → Project
@@ -227,14 +229,22 @@ type Workspace = {
   config: { appliedHash: string | null; effectiveHash: string; upToDate: boolean; lastJob?: ApplyJob }
   common: { syncedAt: Timestamp | null; upToDate: boolean }
   repos: WorkspaceRepo[]
+  /** status=ready|ready_degraded 时必填；其它状态可缺省 */
   capabilities?: Capabilities
   lastActiveAt: Timestamp | null; createdAt: Timestamp
 }
-type Capabilities = { files: boolean; find: boolean; lsp: boolean; pty: boolean; mcpRuntimeAdd: boolean; permissions: boolean }
+/** 与 11.3 Capabilities 同形；嵌在 Workspace 上，无独立 GET */
+type Capabilities = {
+  v: 1
+  files: boolean; find: boolean; lsp: boolean; pty: boolean
+  mcpRuntimeAdd: boolean; permissions: boolean
+  streaming: boolean; abort: boolean; usage: boolean
+}
 
 // GET  /v1/projects/{p}/workspaces/me?runtimeType=   → Workspace（不存在则懒创建，202 + status=provisioning）
 // GET  /v1/workspaces/{w} → Workspace
 // GET  /v1/workspaces/{w}/status/stream  (SSE: event=status data=Workspace)
+// 注：进入 ready 时 Gateway 调 adapter.capabilities() 写入/缓存；缺探测则给引擎安全默认（opencode: 常见能力 true；claude: 按子集）
 // POST /v1/workspaces/{w}/start | stop → Workspace
 // POST /v1/workspaces/{w}/sync-config { force?: boolean } → ApplyJob
 // POST /v1/workspaces/{w}/sync-common → ApplyJob
@@ -289,8 +299,9 @@ type Message = {
 // POST /v1/sessions/{id}/permissions/{reqId}
 type PermissionDecisionReq = { decision: 'allow' | 'deny' | 'always'; updatedInput?: unknown }
 
-// GET /v1/sessions/{id}/events   SSE，data 为 11.3 的 Envelope
-// 鉴权：Authorization header（fetch-event-source）或 ?ticket=<POST /v1/sessions/{id}/events/ticket 获取, 60s 单次>
+// GET  /v1/sessions/{id}/events   SSE，data 为 11.3 的 Envelope
+// 鉴权：Authorization Bearer（fetch-event-source）或 ?ticket=
+// POST /v1/sessions/{id}/events/ticket → { ticket: string, expiresIn: 60 }  // 单次、绑定 session+user
 
 // GET /v1/admin/projects/{p}/sessions → Page<Omit<AgentSession,'branch'>>   (只元数据)
 ```
@@ -402,7 +413,10 @@ type UpdateIssueReq = Partial<{
   position: { beforeId?: Uuid; afterId?: Uuid }    // 拖拽：目标列中的前后卡片
 }>
 // GET    /v1/projects/{p}/board?includeCancelled=false → { columns: { status: IssueStatus; total: number; items: Issue[]; nextCursor: string | null }[] }
-// GET    /v1/projects/{p}/board/events  SSE: event=issue.upserted|issue.deleted data=Issue|{id}
+// GET    /v1/projects/{p}/board/events  SSE:
+//   event=issue.upserted data=Issue
+//   event=issue.deleted  data={ id }
+//   event=board.resync   data={ reason: string }  // 客户端整板重拉 GET .../board
 // GET    /v1/projects/{p}/board/stats?range=week → { counts: Record<IssueStatus, number>; createdThisRange: number; closedThisRange: number }
 // GET    /v1/projects/{p}/issues?status=&assignee=me|<id>&label=&priority=&q=&sort= → Page<Issue>
 // POST   /v1/projects/{p}/issues → 201 Issue

@@ -57,7 +57,7 @@ F -> PG : 创建会话 (见 04 时序)
 F -> PG : link + 若 status=todo → in_progress，assignee 为空则设为自己
 F -> F : 发送 initialPrompt 作为首条消息
 F --> B : session
-B -> B : 打开 Workbench /wb/{workspaceId}?session={id}
+B -> B : 打开 /p/{projectId}/workbench?session={id}
 @enduml
 ```
 
@@ -100,26 +100,26 @@ end
 ```plantuml
 @startuml board-dnd
 autonumber
-participant "solid-dnd" as D
+participant "dnd-kit" as D
 participant "Board store" as S
 participant "hub-api" as H
 database PG
 
 D -> S : drop(card, toColumn, beforeId, afterId)
 S -> S : 乐观更新
-S -> H : PATCH /v1/issues/{id} {status, rankBefore, rankAfter, expectedUpdatedAt}
+S -> H : PATCH /v1/issues/{id}\nIf-Match: <etag>\n{ status, position: { beforeId?, afterId? } }
 H -> H : authz(issue.write) + 状态迁移合法性
-H -> PG : rank = between(before, after)\nUPDATE ... WHERE updated_at = expected
+H -> PG : rank = between(before, after)\nUPDATE ... WHERE etag 匹配
 alt 并发冲突
-  H --> S : 409 → 回滚并刷新列
+  H --> S : 412 / 409 → 回滚并刷新列
 else
   H -> H : 发布 board:{projectId} 事件 (Redis pub/sub)
-  H --> S : 200
+  H --> S : 200 Issue（新 etag）
 end
 @enduml
 ```
 
-看板实时性：`GET /v1/projects/{p}/board/events`（SSE）推送他人变更。
+看板实时性：`GET /v1/projects/{p}/board/events`（SSE）推送 `issue.upserted` / `issue.deleted`；必要时 `board.resync` 触发整板重拉。断线指数退避；失败则每 15s 轮询 `GET .../board`。
 
 ## 9.6 API
 

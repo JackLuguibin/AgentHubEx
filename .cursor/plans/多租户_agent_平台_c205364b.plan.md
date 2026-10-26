@@ -1,15 +1,18 @@
 ---
 name: 多租户 Agent 平台
-overview: 双引擎强隔离 Agent 平台；全局用户多租户/多项目绑定；Hub Shell 以最新 html 原型为准（含租户/项目管理）；远程实例、配置下发、公共空间、看板、双凭据；Workbench 基于 OpenCode packages/app。
+overview: 双引擎强隔离 Agent 平台；内网/可离线默认交付；全 React SPA；公开开源栈（Hono/Drizzle/BullMQ 等）；Facade 会话；远程实例、配置、公共空间、看板、双凭据。
 todos:
   - id: phase0-monorepo
-    content: Phase0：pnpm/Turborepo 骨架、compose（pg/redis/minio）、Drizzle schema、JWT/RBAC
+    content: Phase0：pnpm/Turborepo、compose.intranet.yml（pg/redis/minio）、DEPLOY_PROFILE=intranet、Drizzle、JWT/RBAC
     status: pending
   - id: phase0-domain
     content: Phase0：全局 User + Tenant/Project 生命周期 + 双层 Membership（级联/最后 owner）+ Issue/凭据/实例 API
     status: pending
-  - id: phase0-vendor-app
-    content: Phase0：锁定 vendor OpenCode packages/app，确认许可证与本地 opencode serve 联调
+  - id: phase0-react-spa
+    content: Phase0：React SPA（禁外链资源）+ workbench/agent-client 骨架 + Facade 会话联调
+    status: pending
+  - id: phase0-offline-notes
+    content: Phase0：记录 offline-bundle 目录约定与私有 Registry 导入步骤（脚本可 P1 完善）
     status: pending
   - id: phase1-tenant-project-mgmt
     content: Phase1：租户管理/项目管理页 + 顶栏切换器（仅已绑定可用空间）
@@ -27,10 +30,10 @@ todos:
     content: Phase1：公共文件树+保护前缀+同步 project-common
     status: pending
   - id: phase1-hub-shell-workbench
-    content: Phase1：三组导航 Shell + 工作台挂载 OpenCode app
+    content: Phase1：三组导航 Shell + React Workbench（流式会话/权限/文件树）接 Facade
     status: pending
   - id: phase1-project-board
-    content: Phase1：看板四列+人工确认评审/已解决+从 Issue 开本人会话
+    content: Phase1：React 看板四列（dnd-kit）+人工确认评审/已解决+从 Issue 开本人会话
     status: pending
   - id: phase1-isolation-test
     content: Phase1：多租户上下文隔离 + 停用/归档门禁 + 凭据不落浏览器
@@ -41,6 +44,9 @@ todos:
   - id: phase2-auto-sync
     content: Phase2：Bundle/公共空间变更推送、回滚、受保护前缀
     status: pending
+  - id: phase2-workbench-rich
+    content: Phase2：Workbench 增强（编辑器预览、差异、终端按 capabilities）
+    status: pending
   - id: phase3-worker-claude
     content: Phase3：apps/worker/claude 与 adapter/claude 对齐契约 + Bundle 映射
     status: pending
@@ -48,7 +54,7 @@ todos:
     content: Phase3：LLM Proxy 与按凭据来源计量
     status: pending
   - id: phase4-prod
-    content: Phase4：mTLS、KMS、OTel/告警、可选 K8s、上游 app 定期同步
+    content: Phase4：mTLS、KMS、OTel/告警、可选 K8s
     status: pending
 isProject: false
 ---
@@ -61,7 +67,9 @@ isProject: false
 - **隔离**：每个工作区 = **独立容器（或等价进程沙箱）**，文件系统与进程完全隔离。
 - **协作模型**：全局 **User** 账号可绑定多个租户与项目；角色在 TenantMembership / ProjectMembership **独立生效**；项目内会话归属用户、默认互不可见。A 项目 owner 不自动获得 B 项目权限。
 - **凭据模型**：用户可使用 **个人 Provider 凭据**（跨有权项目保留），也可使用 **项目共享凭据**；开会话时按策略解析并锁定版本。
-- **前端策略**：Workbench 演进 OpenCode `packages/app`；Hub Shell 外挂管理面，**通用组件库**（Kobalte/Tailwind）。
+- **前端策略**：**全站 React 单 SPA**（Vite + React Router + shadcn + TanStack）；Workbench 只连 Hub（**Facade 会话/SSE** + **agent 文件白名单**），**不 vendor OpenCode Web**。
+- **依赖策略（ADR-010）**：**公开开源优先**（OSI 许可、可自托管/离线镜像）；用流行栈（React/Hono/Drizzle/BullMQ/PostgreSQL/Redis/MinIO 等），清单见 [17-libraries.md](../../docs/architecture/17-libraries.md)；禁止闭源硬依赖与自研 DS/队列/ORM/JWT。
+- **内网 / 离线（ADR-011）**：**默认内网部署**，不依赖公网 CDN/npm/Docker Hub；LLM/Git 走内网；Agent 出网默认拒绝+allowlist；支持空气隔离 offline-bundle。详见 [18-intranet-offline.md](../../docs/architecture/18-intranet-offline.md)。
 - **远程接入 / 配置下发 / 公共空间 / 看板**：同前；IA 以最新 html 原型为准。
 - **交互原型 SoT**：[`.cursor/plans/html`](.cursor/plans/html/README.md)（含 `management.js` / `memberships.js`）；评审用，正式栈不依赖该 HTML。
 - **现状**：OpenCode `serve`/`web` 仅为单机 HTTP + Basic Auth，**无原生多租户/多用户授权**；MCP/配置多为进程级共享。因此多租户与多用户会话边界必须由本平台控制面与门面补齐。
@@ -72,8 +80,8 @@ isProject: false
 ```mermaid
 flowchart TB
   subgraph clients [Clients]
-    HubShell[Hub_Shell_Solid]
-    Workbench[OpenCode_App_Fork]
+    HubShell[Hub_Shell_React_SPA]
+    Workbench[Workbench_React_Module]
     APIClients[SDK_and_CLI]
   end
 
@@ -455,10 +463,10 @@ flowchart LR
    - `PUT/DELETE /v1/me/credentials`：用户个人凭据。
    - `PUT/DELETE /v1/projects/{projectId}/credentials`：项目凭据（owner）。
    - `GET .../credentials`：仅返回 `id/label/provider/status/isDefault` 等元数据，**永不返回 secret**。
-6. 将 `/v1/workspaces/{id}/agent/*` **反向代理**到实例（仅 workspace owner）：
-   - OpenCode：映射其 OpenAPI（`/session`、`/event`、`/file`…）；阻断浏览器直写上游 `/auth`（改由 Hub 代写）。
-   - `worker/claude`：映射到同一会话 API 契约。
-7. SSE/WebSocket 按 **用户 + 租户** 限流；断开不销毁容器（可配置 idle TTL）。
+6. `/v1/workspaces/{id}/agent/*` **白名单反代**（仅 workspace owner；文件/find/PTY 等）：
+   - 浏览器**阻断**上游 `/session`、`/event`、`/auth`、`PATCH /config`（会话创建与 SSE 只走 Facade；`/auth` 由 Hub 代写）。
+   - 放行 `/file`、`/find`、只读 `/agent` `/mcp` `/config`，以及 P2+ `/pty`（受 capabilities）。
+7. 会话 SSE：`GET /v1/sessions/{id}/events`（按用户+租户限流）；断开不销毁容器（idle TTL）。
 
 ### 统一会话抽象（双引擎适配）
 
@@ -467,17 +475,17 @@ Hub 定义稳定契约（建议 JSON + SSE），且每条会话记录带 `ownerU
 - `GET /v1/projects/{projectId}/sessions`（仅当前用户）
 - `POST /v1/projects/{projectId}/sessions`（body 可含 `credentialSource` / `credentialId`）
 - `POST /v1/sessions/:id/messages` / `POST /v1/sessions/:id/abort`
-- `GET /v1/sessions/:id/events`（SSE）
-- `GET /v1/workspaces/{id}/files`（可选）
+- `GET /v1/sessions/:id/events`（SSE；可选 `POST .../events/ticket` 回退）
+- `GET /v1/workspaces/{id}/agent/file|find|...`（文件类；非独立 `/files`）
 - `GET /v1/projects/{projectId}/credentials/options`：当前用户可选凭据列表（个人 + 策略允许的项目凭据元数据）
 
 适配器：
 
-- **`adapter/opencode`**：代理 OpenCode HTTP + 事件流；创建会话时在 Hub 登记 owner 映射。
-- **`adapter/claude`**：对接 `worker/claude`（`ClaudeSDKClient` / `query()`），事件归一为同一信封（`assistant` / `tool_call` / `tool_result` / `result` / `permission_request`）。
+- **`adapter/opencode`**：内网代理 OpenCode HTTP + 事件流；创建会话时在 Hub 登记 owner 映射。
+- **`adapter/claude`**：对接 `worker/claude`（`ClaudeSDKClient` / `query()`），事件归一为同一信封（见 `runtime-contract` Envelope）。
 - **`adapter/common`**：统一错误码、SSE 封装、与 `runtime-contract` 的编解码。
 
-项目选择实例时：门面按 binding 返回 `runtimeType` + `basePath`；Hub Web 据此渲染「OpenCode Web 嵌入」或「Claude 会话页」。进入前先选定 **当前用户的 Workspace**。
+进入工作区：`GET /v1/projects/{p}/workspaces/me` 返回 `Workspace`（含 `runtimeType` + **`capabilities`**）；React Workbench 按能力渲染同一会话 UI。进入前先选定 **当前用户的 Workspace**。
 
 ## 强隔离工作区（2A）+ 多用户
 
@@ -571,10 +579,10 @@ Hub 探测 /global/health，保存为 RuntimeInstance(mode=external)
 
 ### 连接路径（两种模式相同）
 
-1. 用户在 Shell 选择项目（及凭据）→ 打开工作区。  
-2. Hub 解析 binding → 选定 `RuntimeInstance`。  
-3. （可选）注入 Provider 凭据到该 OpenCode。  
-4. Workbench 只连 `Hub /v1/workspaces/{id}/agent/*`；Gateway 用保存的节点认证反代到 `baseUrl`。
+1. 用户在 Shell 选择项目（及凭据）→ 打开 `/p/:projectId/workbench`。  
+2. Hub 解析 binding → 选定 `RuntimeInstance`；`workspaces/me` 带回 `capabilities`。  
+3. 开会话时注入 Provider 凭据（服务端）；浏览器只传 `credentialId`。  
+4. Workbench：**会话/SSE → Facade**；**文件等 →** `/v1/workspaces/{id}/agent/*` 白名单；Gateway 用保存的节点认证访问 `baseUrl`。
 
 ### 运维面（Hub Shell）
 
@@ -583,53 +591,70 @@ Hub 探测 /global/health，保存为 RuntimeInstance(mode=external)
 - 项目侧「选择可访问的实例」。  
 - 审计：谁在何时连了哪台实例。
 
-## 前端演进：基于 OpenCode Web（`packages/app`）
+## 前端架构：全站 React 单 SPA（最优路径）
 
-**结论：可以，且作为本方案前端主路径。**  
-OpenCode 图形客户端共享基础在上游 [`packages/app`](https://github.com/anomalyco/opencode/tree/dev/packages/app)（SolidJS + Vite），通过 `ServerSDKProvider` / `ServerSyncProvider` 连接后端 HTTP + SSE；Desktop 也复用同一套。官方 `opencode web` 常是「本地 Hono API + 前端资源」，CORS 亦支持自定义前端源——适合把「当前 server」换成 **Hub Facade 的工作区入口**。
+**结论：前端全部 React，一套应用、一套 UI、一套数据层；运行时仍是 OpenCode/Claude，UI 不绑定上游 Solid Web。**  
+选型取舍：需要 SEO/SSR 的营销站不适用本门户 → **Vite SPA** 优于 Next.js（部署简单、与 compose **自托管静态**一致、鉴权用 JWT + httpOnly refresh 即可）。不引入 Solid、不 iframe 嵌异栈；不依赖公网 CDN（ADR-011）。
 
-### 双层前端（同一 Solid 技术栈）
+### 结构
 
 ```mermaid
-flowchart LR
-  subgraph fe [AgentHubEx_Frontend]
-    Shell[Hub_Shell]
-    WB[Workbench_from_packages_app]
+flowchart TB
+  subgraph spa [apps_hub_shell_React_SPA]
+    Router[React_Router]
+    Providers[Auth_Tenant_Query_Providers]
+    ShellPages[Management_Pages]
+    WB[packages_workbench]
+    UIKit[packages_hub_ui_kit]
   end
-  Shell -->|"select_project_workspace_credential"| Gateway
-  Shell -->|"open_workbench_route"| WB
-  WB -->|"OpencodeClient_to_facade"| Gateway
-  Gateway --> Runtime[User_Workspace_Runtime]
+  AgentClient[packages_agent_client]
+  Router --> ShellPages
+  Router --> WB
+  ShellPages --> UIKit
+  WB --> UIKit
+  ShellPages --> Providers
+  WB --> Providers
+  WB --> AgentClient
+  ShellPages --> AgentClient
+  AgentClient -->|"Hub_JWT_REST_SSE"| Gateway[Hub_Facade]
+  Gateway --> Runtime[Workspace_Runtime]
 ```
 
-| 层 | 基于 | 职责 | 改造深度 |
-|---|---|---|---|
-| **Hub Shell** | 新建 Solid 应用；IA/视觉以 [html 原型](.cursor/plans/html/README.md) 为准 | 概览、看板、实例、配置、公共文件、成员、凭据、审计、设置；「我的工作台」壳 | 全新 |
-| **Workbench** | vendor `packages/app`，嵌在「我的工作台」会话区 | Prompt、消息流、文件树、权限等 IDE | 只改连接与壳层集成 |
+| 层 | 包 / 位置 | 职责 |
+|---|---|---|
+| **App Shell** | `apps/hub-shell` | 路由、布局、Auth/Tenant/Project Provider、懒加载页面 |
+| **管理面** | `hub-shell/src/pages/*` | 租户/项目/看板/实例/配置/文件/成员/凭据/审计/设置 |
+| **Workbench** | `packages/workbench` | 会话列表、流式消息、工具调用卡片、权限弹窗、文件树/预览、同步入口 |
+| **Agent 客户端** | `packages/agent-client` | Facade 会话/SSE + agent 文件白名单；类型来自 `runtime-contract` |
+| **UI Kit** | `packages/hub-ui-kit` | shadcn 业务组合（PageHeader、IssueCard、StatStrip…） |
 
-### Workbench 必改点（边界清晰）
+### Workbench 能力分期（控制风险）
 
-1. **连接层**：替换/包装 `ServerSDKProvider` 的 base URL 与鉴权——指向 `https://hub/v1/workspaces/{id}/agent`，使用 Hub JWT（不再用节点 Basic Auth，也不直连容器）。
-2. **进入协议**：从 Hub Shell 带入 `workspaceId`、`projectId`、已选凭据会话上下文（凭据仍只在服务端注入，前端只传 `credentialId`）。
-3. **会话列表**：优先以 Hub 的「我的会话」为准做过滤/标题同步；上游 `GET /session` 若暴露多余数据，由 Facade 裁剪。
-4. **设置/Auth UI**：隐藏或接管「在浏览器里填写 Provider Key」的路径，改为跳转 Hub 凭据页；阻断直写上游 `/auth`。
-5. **多 Server 概念**：上游「See Servers」映射为 Hub 的「我的工作区 / 可用 Runtime」，避免用户看到裸节点地址。
+| 阶段 | 范围 |
+|---|---|
+| **P1（MVP）** | 本人会话 CRUD、选凭据开会话、流式 assistant/tool 事件、权限允许/拒绝、只读文件树 + 文本预览、同步配置/公共资料、关联 Issue、capabilities 降级隐藏 |
+| **P2+** | 多标签代码预览/轻量编辑、diff、按 capabilities 开终端/PTY；不追求首版对齐 OpenCode Desktop 全量 IDE |
 
-### 与上游共存策略（降低分叉成本）
+### 连接与产品规则（ADR-008，已收紧）
 
-- **Vendor 方式**：`packages/opencode-app` 以 git subtree / 定期同步锁定 commit；自有改动集中在 `platform/`、`context/server*`、路由守卫等薄适配层。
-- **Platform 注入**：沿用上游 `Platform` context 思路，把「租户品牌、回 Hub Shell、凭据入口」做成平台适配，而不是散改业务组件。
-- **许可与归属**：落地前确认 anomalyco/opencode 许可证并在仓库保留 NOTICE；不宣称官方多租户版。
-- **不改**：消息/工具调用渲染、编辑器集成、终端 PTY 等核心 IDE（除非 bugfix）。
+1. **会话主路径 = Facade**：CRUD / messages / permissions / SSE → `/v1/sessions/{id}/*`（`fetch-event-source` + Bearer；ticket 为回退）。
+2. **文件 / find / PTY = agent 反代白名单**；浏览器**禁止** `/agent/event`、`POST /agent/session`。
+3. **路由**：`/p/:projectId/workbench?session=`（UUID）；无 `/wb/*`。
+4. **Capabilities**：嵌在 `Workspace`；无独立 GET；见 `runtime-contract` Envelope.data 形状。
+5. **无 Provider Key UI**；无裸节点地址；`session.status=busy` 时禁切凭据。
+6. 细节 SoT：[docs/architecture/10-frontend.md](../../docs/architecture/10-frontend.md)、[04](../../docs/architecture/04-gateway-facade.md)。
 
-### Claude 引擎在同一 Workbench 的呈现
+### 为何这是「最优 React」而非 vendor Solid
 
-- **首选**：`worker/claude` 实现与 `worker/opencode` 相同的 API 子集，Workbench 按 `runtimeType` 无感切换。
-- **兼容不足时**：Workbench 对缺失能力降级（如部分 file/LSP），不另起第二套会话 IDE。
+- 招人/生态/组件（shadcn、dnd-kit、TanStack）统一，无双运行时与 iframe 鉴权坑。  
+- 多租户壳与会话页共享路由守卫、Query 缓存、设计 token。  
+- 引擎差异收敛在 **服务端 adapter**，前端不跟 OpenCode Web 发版绑死。  
+- 代价是自研 Workbench UI；用分期范围把 P1 压在「能对话、能审权限、能看文件」而不是重 IDE。
 
 ### Hub Shell 信息架构（对齐最新 html：三组导航）
 
-侧栏三组（见 `index.html`）；顶栏切换租户/项目；无绑定时引导至租户/项目管理。左下角角色切换仅原型演示。
+侧栏三组（见 `index.html`）；顶栏切换租户/项目；无绑定时引导至租户/项目管理。左下角角色切换仅原型演示。  
+**说明**：下表「路由键」为原型 hash（如 `#workbench`）；生产路径为 `/p/:projectId/<键>`（见 [10-frontend.md](../../docs/architecture/10-frontend.md)）。
 
 **平台与组织**
 
@@ -644,7 +669,7 @@ flowchart LR
 |---|---|---|
 | `overview` | 项目概览 | 指标、我的待办、动态、运行环境、交付阶段 |
 | `board` | 项目看板 | 四列+折叠取消；人工确认评审/已解决；关联本人会话 |
-| `workbench` | 我的工作台 | 本人会话壳 + 挂载 OpenCode `packages/app`；文件树区分个人/`project-common` |
+| `workbench` | 我的工作台 | 同 SPA 内 `packages/workbench`：本人会话/选凭据/流式对话/权限；文件树区分个人/`project-common` |
 | `instances` | 运行实例 | 登记、**独占成员绑定**、健康/sync、检测 |
 | `config` | 配置中心 | Agent/MCP/Skill/AGENTS.md/权限与模型/下发记录 |
 | `files` | 公共文件 | 树+面包屑+保护前缀+版本回滚 |
@@ -667,7 +692,7 @@ flowchart LR
 - 侧栏跨模块导航；顶栏组织/项目上下文；中文 UI + 必要领域名。
 - 桌面主视图按视口分配高度；说明/策略类 **page-summary 一律置顶于主内容之前**。
 - 响应式：平板/手机；窄屏看板用状态标签切列；表格窄屏改为字段卡片。
-- 无障碍：问题卡片键盘可开；原生 dialog/表单可键盘操作（正式实现由 Kobalte 承接）。
+- 无障碍：问题卡片键盘可开；dialog/表单可键盘操作（正式实现由 Radix / shadcn 承接）。
 
 ### Provider 凭据表单（对齐原型 credential-form）
 
@@ -685,64 +710,69 @@ flowchart LR
 - 公共文件：`docs/` 等受保护前缀仅 owner；同步策略默认 `on_workspace_start`；ZIP 解压仅后端职责。  
 - 工作台内可触发「同步配置 / 同步公共资料」（写审计）。
 
-## 技术栈（具体选定，偏通用组件）
+## 技术栈（公开开源 + 流行库，ADR-010）
 
-| 组件 | 选型 | 说明 |
+完整清单与许可约定见 [docs/architecture/17-libraries.md](../../docs/architecture/17-libraries.md)。摘要（均为公开项目）：
+
+| 层 | 选型（流行组件） | 说明 |
 |---|---|---|
 | Monorepo | pnpm + Turborepo | |
-| Gateway / Control API | TypeScript + Hono | |
-| Meta DB | PostgreSQL + Drizzle | |
-| 对象存储 | MinIO / S3 | 公共空间 |
-| 缓存/队列 | Redis | |
-| Hub Shell | SolidJS + Vite | 与 Workbench 同栈，降低认知切换 |
-| **通用 UI** | **Kobalte + Tailwind** | Dialog/Select/Tabs/Dropdown 等；视觉 token 对齐原型（冷灰底、白卡片、蓝主色、绿=成功） |
-| **看板** | `@thisbeyond/solid-dnd` + Board 布局 | IssueCard/StatStrip 等业务组合在 hub-ui-kit |
-| 表格/表单 | TanStack Table（Solid）+ Kobalte | 实例、成员、凭据、Issue 列表、审计 |
-| 图标 | lucide-solid | |
-| 设计原型 | [`.cursor/plans/html`](.cursor/plans/html/) | 评审 SoT；正式栈不依赖该 HTML |
-| Workbench | vendor OpenCode `packages/app` | 嵌于工作台会话区，不另起 IDE |
-| OpenCode 客户端 | `@opencode-ai/sdk` / `@opencode-ai/client` | |
-| Node Agent | TypeScript + Dockerode | |
-| 容器 | Docker（首版） | |
-| 观测 | OpenTelemetry + 结构化日志 | |
+| API | **Hono** + `@hono/zod-openapi` + zod | 不自研框架 |
+| DB | PostgreSQL 16 + **Drizzle** + postgres.js | 禁止业务裸 SQL（ADR-009） |
+| 队列 / 缓存 | Redis 7 + **BullMQ** + ioredis | Apply/Sync/健康任务 |
+| 对象存储 | MinIO + `@aws-sdk/client-s3` | |
+| 鉴权密码 | **jose**（JWT）+ **@node-rs/argon2** | 不自研加密 |
+| 限流 | `rate-limiter-flexible` | Redis 后端 |
+| 日志 / 观测 | **pino** + OpenTelemetry JS | |
+| 前端 | React 19 + Vite + React Router | 单 SPA |
+| UI | **shadcn/ui** + Radix + Tailwind + lucide | 不自研 DS |
+| 数据/表/拖拽 | TanStack Query/Table + RHF + **dnd-kit** + cmdk + sonner | |
+| HTTP / SSE | **ky** + `@microsoft/fetch-event-source` | |
+| Markdown / 高亮 | react-markdown + remark-gfm + shiki | Workbench 消息 |
+| 测试 | Vitest + Testing Library + MSW + Playwright | |
+| Node Agent | **dockerode** + Hono | |
+| GitHub API | **octokit** | PR/仓库 |
+| Workbench | `packages/workbench`（业务壳） | 只组合上表库 + Facade |
+| 设计原型 | [`.cursor/plans/html`](.cursor/plans/html/) | 仅 IA/视觉 |
 
-`packages/hub-ui-kit`：仅封装 **业务级组合**（PageHeader、StatStrip、IssueCard、InstanceHealthBadge），底层 primitive 全部来自 Kobalte/Tailwind，避免再维护一套私有 Design System。
+**自研边界**：多租户 Facade/RBAC 编排、runtime adapter、ConfigBundle 语义、Workbench 布局；其余优先表内库。
 
 ## 仓库结构（落地时创建）
 
 ```text
 AgentHubEx/
   apps/
-    hub-shell/         # 多租户管理壳（Solid）+ 配置中心 UI
+    hub-shell/         # 唯一前端 SPA（管理面路由 + 挂载 workbench）
     hub-api/           # Facade + Control Plane + Config Apply
     node-agent/        # 托管编排 + 文件型配置写入
     agenthub-sync/     # external 实例侧轻量配置同步 sidecar
     worker/
-      common/          # Worker 公共框架与 API 契约实现辅助
-      opencode/        # managed OpenCode 引擎
-      claude/          # Claude Agent SDK 引擎
+      common/
+      opencode/
+      claude/
   packages/
-    opencode-app/      # vendor 上游 packages/app + 薄适配层
-    hub-ui-kit/
-    config-bundle/     # Bundle schema、合并、渲染文件树
-    common-fs/         # 公共空间路径安全、上传、同步到工作区
+    db/                # Drizzle schema + 迁移 + db 客户端（ADR-009）
+    workbench/         # React 会话 IDE 模块
+    agent-client/      # Hub agent REST/SSE 客户端
+    hub-ui-kit/        # shadcn 业务组合
+    config-bundle/
+    common-fs/
     domain/
     auth/
-    runtime-contract/  # Worker 统一会话/事件/健康接口
+    runtime-contract/  # 统一会话/事件/capabilities（前后端共用类型）
     adapter/
-      common/          # 适配器基类、错误/事件归一
-      opencode/        # OpenCode HTTP/SSE ↔ Hub 契约
-      claude/          # Claude SDK 流 ↔ Hub 契约（对齐 worker/claude）
+      common/
+      opencode/
+      claude/
   deploy/
     docker/
-    compose/           # pg+redis+minio+hub-api+hub-shell+...
+    compose/
   docs/
-    architecture.md
-    opencode-app-sync.md
 ```
 
 ## 安全与多租户 / 多用户硬规则
 
+- **数据访问**：仅 Drizzle ORM（`packages/db`）；业务禁止手写 SQL（ADR-009）。
 - 所有数据访问带 `tenant_id` 强制过滤；会话与工作区另加 `owner_user_id` 校验（行级约定 + 集成测试）。
 - Workspace 路径与容器标签必须含 `tenantId` / `projectId` / `userId`；跨租户、跨用户 IDOR 作为阻断级测试。
 - **禁止**把同一 OpenCode 容器共享给项目内多名用户充当多租户；首版一人一容器。
@@ -755,27 +785,28 @@ AgentHubEx/
 ## 分阶段交付
 
 ### Phase 0 — 骨架（1 周）
-- Monorepo、PG schema、Auth（JWT + RBAC）、本地 compose。
-- 领域：全局 **User**、Tenant/Project 生命周期、**TenantMembership / ProjectMembership**（含级联与最后 owner 约束）、Issue/ConfigBundle/Credential/RuntimeInstance。
-- Hub Shell 脚手架（Kobalte + Tailwind + solid-dnd）；租户/项目列表与切换器骨架。
-- Vendor 锁定上游 `packages/app`；本地 `opencode serve` 联调。
+- Monorepo、PG schema、Auth（JWT + RBAC）、**`compose.intranet.yml`**（`DEPLOY_PROFILE=intranet`）。
+- 领域：全局 **User**、Tenant/Project、Membership、Issue/ConfigBundle/Credential/RuntimeInstance。
+- React SPA（Vite + shadcn + TanStack + dnd-kit；**无外链字体/脚本**）；`workbench` + `agent-client` 骨架。
+- 内网 `opencode serve` + 内网/mock LLM baseUrl，经 Facade 打通一条流式会话。
+- 文档化 offline-bundle 目录与私有 Registry 导入（打包脚本可 P1）。
 
 ### Phase 1 — 对齐最新 html 原型的可运行门户 MVP
-- 三组导航全页：租户管理、项目管理、工作空间六页、项目配置五页（含用户多空间绑定）。
-- 上下文切换与停用/归档门禁；实例独占绑定；配置下发；公共文件；看板人工确认；工作台挂载 OpenCode app。
-- 验收：多租户多项目绑定规则；对照原型主路径（进空间→登记实例→下发→公共文件→看板→会话）；隔离与凭据安全。
+- 三组导航全页 + 用户多空间绑定。
+- 实例独占绑定、配置下发、公共文件、看板人工确认。
+- **React Workbench P1**：流式对话、权限、文件树预览、选凭据、关联 Issue。
+- Worker allowlist + `allowedProviderHosts`；offline-bundle 最小可装。
+- 验收：主路径 + 隔离/凭据 + **N1–N4 内网**（见 18.7）。
 
-### Phase 2 — Node Agent 托管 + 自动同步强化
-- Node Agent managed 实例；配置与公共文件写入挂载卷。
-- Bundle/公共空间变更可选推送；回滚；受保护前缀；`credentialPolicy`；配额与多节点调度。
+### Phase 2 — Node Agent 托管 + Workbench 增强
+- Node Agent managed；Bundle/公共空间推送与回滚；配额与多节点。
+- Workbench：编辑器预览/diff；按 capabilities 终端等。
 
 ### Phase 3 — worker/claude 对等 + Bundle 双引擎映射
-- 完善 `apps/worker/claude`，与 `apps/worker/opencode` 对齐契约；同一 Bundle 映射消费。
-- LLM Proxy + 按凭据来源计量。
+- `apps/worker/claude` 对齐契约；LLM Proxy + 按凭据来源计量。
 
 ### Phase 4 — 生产加固
-- mTLS、密钥轮换、OTel、告警；Config/凭据 KMS。
-- K8s provider（可选）；上游 app 定期同步。
+- mTLS、密钥轮换、OTel、告警；Config/凭据 KMS；可选 K8s。
 
 ## 首版验收标准
 
@@ -789,8 +820,9 @@ AgentHubEx/
 ## 明确不做（首版）
 
 - 在 OpenCode **服务端内核**里做多租户 ACL（多租户与配置 SoT 留在 Hub）。
-- 大面积改写 `packages/app` 会话渲染核心；另起一套 React 会话 IDE。
-- 自研完整 Design System / 自研拖拽底层（用 Kobalte + solid-dnd）。
+- Vendor / 嵌入 OpenCode Web；浏览器经 `/agent` 打会话事件或创建会话；独立 `/wb/*`。
+- P1 对齐 OpenCode Desktop 全量 IDE（LSP、完整终端等 → P2+ / capabilities）。
+- 自研 Design System / 拖拽底层；引入 Next.js/RSC。
 - 完整 Jira/线性工作流、自定义无限状态机、燃尽图等重项目管理。
 - 要求运维 SSH 手改每台 `opencode.json`。
 - 多人共容器；公共空间实时协同编辑；会话分享；前端持久化 Key；计费收银台。

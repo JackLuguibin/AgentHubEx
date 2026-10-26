@@ -49,8 +49,8 @@ rectangle "不可信：Agent 执行环境" as Z4 {
 | 节点密码泄露 | Workbench 直连节点 | 节点仅内网，浏览器只连 Hub |
 | SSRF | 登记 external URL 指向元数据服务 | DNS 解析后 IP 黑名单、出站代理、仅 admin 可登记 |
 | 容器逃逸 | Agent 执行恶意命令 | 非 root、cap-drop、默认 seccomp、无 docker.sock（ADR-002：不防高级逃逸，接受该风险） |
-| 横向移动 | 容器访问其他工作区 / 控制面 | `icc=false`；`DOCKER-USER` 拒绝控制面网段与元数据地址；出网默认放开但审计 DNS（ADR-003） |
-| 数据外传 | 提示注入让 Agent 把代码/Key 发到外网 | 出网放开下无法阻断：依靠容器内不放真实 Key（P3 LLM Proxy）、Git 凭据不落盘、DNS 审计事后追溯 |
+| 横向移动 | 容器访问其他工作区 / 控制面 | `icc=false`；拒绝控制面网段与元数据；**intranet 档默认拒公网 + allowlist**（ADR-003/011） |
+| 数据外传 | 提示注入外传代码/Key | 内网档无公网出口则难外传；仍不放真实 Key（P3 Proxy）、Git 凭据不落盘、DNS 审计 |
 | 配置注入 | 恶意 MCP command | 发布校验 + 租户 MCP 命令白名单 + 审计 |
 | 路径穿越 | 公共空间/zip/sync | `common-fs` 统一校验；sync 白名单；拒绝 symlink |
 | 提示注入改公共资料 | Agent 写共享文件 | 只读挂载 + promote 需人工 |
@@ -98,13 +98,15 @@ rectangle "不可信：Agent 执行环境" as Z4 {
 
 ## 12.5 部署拓扑
 
-### 本地 / 单机（Phase 0–1）
+### 内网单机 / 小集群（Phase 0–1 默认，ADR-011）
+
+无公网。镜像来自私有 Registry 或 `docker load`。LLM/Git 为内网服务。
 
 ```plantuml
 @startuml deploy-compose
-node "Docker Compose 主机" {
+node "内网 Compose 主机" {
   [caddy :443] as C
-  [hub-shell (静态)] as S
+  [hub-shell (静态, 自托管)] as S
   [hub-api :8080] as A
   [hub-jobs] as J
   database "postgres:16" as PG
@@ -112,7 +114,11 @@ node "Docker Compose 主机" {
   database "minio" as M
   [node-agent (可选, 同机)] as N
 }
-node "远程服务器 X" {
+node "内网推理 / Git" {
+  [vLLM_or_Ollama_or_网关] as LLM
+  [GitLab_or_Gitea] as GIT
+}
+node "内网 Server-X" {
   [opencode serve :4096] as O
   [agenthub-sync] as SY
 }
@@ -123,19 +129,23 @@ A --> R
 A --> M
 J --> PG
 J --> R
-A --> O : 内网/VPN
-SY --> A : 出站
+A --> O : 内网
+SY --> A : 内网出站
 A --> N
+O --> LLM : allowlist
+O --> GIT : allowlist
 @enduml
 ```
+
+离线包与验收见 [18](18-intranet-offline.md)。
 
 ### 生产（Phase 4）
 
 ```plantuml
 @startuml deploy-prod
 cloud "Ingress / LB + WAF" as LB
-node "K8s 控制面集群" {
-  [hub-shell x2 (CDN)] as S
+node "内网控制面集群" {
+  [hub-shell x2 (自托管静态)] as S
   [hub-api x3 (HPA)] as A
   [hub-jobs x2] as J
   [llm-proxy x2] as LP
@@ -143,8 +153,8 @@ node "K8s 控制面集群" {
 }
 database "PostgreSQL HA\n(主从 + PITR)" as PG
 database "Redis Sentinel / Cluster" as R
-database "S3" as S3
-cloud "KMS" as KMS
+database "MinIO_or_S3兼容" as S3
+cloud "内网 KMS/Vault" as KMS
 node "Worker 节点池 A (managed)" {
   [node-agent] as N1
   [worker 容器 ...] as W1
@@ -154,6 +164,10 @@ node "Worker 节点池 B (managed, GPU)" {
 }
 node "BYO 服务器" {
   [external opencode + agenthub-sync] as E
+}
+node "内网推理/Git" {
+  [LLM网关] as LLM
+  [GitLab_Gitea] as GIT
 }
 LB --> S
 LB --> A
@@ -165,13 +179,15 @@ A --> N1 : mTLS
 A --> N2 : mTLS
 A --> W1 : 内网
 A --> E : 私有链路
-W1 --> LP : LLM 调用
-W1 --> [Internet] : 默认放开 (ADR-003)
+W1 --> LP : LLM
+W1 --> LLM : allowlist
+W1 --> GIT : allowlist
 @enduml
 ```
 
 - hub-api 无状态；SSE 连接粘性不是必须（事件通过 Redis Stream 补发）。
 - 数据面保持 Docker + node-agent（ADR-002）；控制面可跑在 K8s 或 compose，二者不耦合。K8s 工作区 provider 不在规划内，如有需要另开 ADR。
+- **默认 intranet**：Worker **不**默认访问公网；见 ADR-003/011 与 [18](18-intranet-offline.md)。
 
 ## 12.6 备份与恢复
 
