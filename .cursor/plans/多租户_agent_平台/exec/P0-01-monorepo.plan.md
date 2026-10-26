@@ -4,27 +4,28 @@ overview: 初始化 pnpm/Turborepo、intranet compose、packages/db+auth+domain+
 todos:
   - id: init-pnpm-turbo
     content: 初始化 pnpm-workspace + Turborepo + 根 tsconfig/eslint（禁公网 CDN）
-    status: pending
+    status: completed
   - id: compose-intranet
     content: 新增 deploy/compose/compose.intranet.yml（pg16/redis7/minio）与 DEPLOY_PROFILE=intranet
-    status: pending
+    status: completed
   - id: pkg-db-schema
     content: 创建 packages/db：users/tenants/projects/memberships Drizzle schema + migrate 脚本
-    status: pending
+    status: completed
   - id: pkg-auth-rbac
     content: 创建 packages/auth：jose JWT + @node-rs/argon2 + RBAC 矩阵 Vitest
-    status: pending
+    status: completed
   - id: pkg-domain-contract
     content: 创建 packages/domain 与 packages/runtime-contract 类型骨架（对齐 02/11）
-    status: pending
+    status: completed
   - id: root-scripts
     content: 根 package.json 脚本：dev/build/test/db:migrate/lint；turbo pipeline
-    status: pending
+    status: completed
   - id: dod-compose-migrate
     content: DoD：compose up 健康、pnpm db:migrate 成功、auth RBAC 单测绿
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P0-01 Monorepo 与基础包
 
 > **索引 todo**：`phase0-monorepo` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

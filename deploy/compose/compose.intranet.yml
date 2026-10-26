@@ -1,0 +1,56 @@
+# AgentHubEx intranet baseline (DEPLOY_PROFILE=intranet)
+# Usage:
+#   docker compose -f deploy/compose/compose.intranet.yml up -d
+# Optional object storage (when registry allows MinIO pulls):
+#   docker compose -f deploy/compose/compose.intranet.yml --profile object-storage up -d
+
+name: agenthub-intranet
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agenthub
+      POSTGRES_PASSWORD: agenthub
+      POSTGRES_DB: agenthub
+    ports:
+      - "5432:5432"
+    volumes:
+      - agenthub_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agenthub -d agenthub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - agenthub_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Object storage — enable with --profile object-storage
+  # Prefer mirroring these images into a private registry for airgap.
+  minio:
+    profiles: ["object-storage"]
+    image: bitnami/minio:latest
+    environment:
+      MINIO_ROOT_USER: agenthub
+      MINIO_ROOT_PASSWORD: agenthubsecret
+      MINIO_DEFAULT_BUCKETS: agenthub
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - agenthub_minio:/bitnami/minio/data
+
+volumes:
+  agenthub_pg:
+  agenthub_redis:
+  agenthub_minio:
