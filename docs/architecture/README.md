@@ -1,6 +1,8 @@
 # AgentHubEx 架构文档
 
-> 来源：`.cursor/plans/多租户_agent_平台_c205364b.plan.md`。本目录把方案拆成可落地的详细设计，所有图使用 PlantUML（可用 VS Code PlantUML 插件、IntelliJ 或 `plantuml` CLI 渲染）。
+> **实现执行手册**：[`.cursor/plans/多租户_agent_平台/exec/`](../../.cursor/plans/多租户_agent_平台/exec/README.md)（按 Phase 依次落地代码）。
+>
+> 来源：产品方案索引 [`.cursor/plans/多租户_agent_平台_c205364b.plan.md`](../../.cursor/plans/多租户_agent_平台_c205364b.plan.md)（正文拆于 [`.cursor/plans/多租户_agent_平台/`](../../.cursor/plans/多租户_agent_平台/)）。本目录把方案拆成可落地的详细设计，所有图使用 PlantUML（可用 VS Code PlantUML 插件、IntelliJ 或 `plantuml` CLI 渲染）。
 
 ## 文档索引
 
@@ -25,6 +27,7 @@
 | 16 | [16-api-schema.md](16-api-schema.md) | 全部对外/内部 API 的字段级 Schema、示例、错误码 |
 | 17 | [17-libraries.md](17-libraries.md) | 各层流行库锁定清单（ADR-010） |
 | 18 | [18-intranet-offline.md](18-intranet-offline.md) | **内网 / 离线部署**、升级回滚、环境变量清单（ADR-011） |
+| — | [exec 手册](../../.cursor/plans/多租户_agent_平台/exec/README.md) | **按 Phase 执行的实现手册**（含可勾选 todos） |
 
 ## 核心原则速览
 

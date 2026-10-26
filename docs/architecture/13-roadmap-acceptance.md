@@ -1,5 +1,7 @@
 # 13 分阶段交付与验收
 
+> **实现步骤与 todos**：按 [`.cursor/plans/多租户_agent_平台/exec/`](../../.cursor/plans/多租户_agent_平台/exec/README.md) 顺序执行；本节保留里程碑、依赖与验收用例 SoT。
+
 ## 13.1 里程碑甘特（估算）
 
 ```plantuml
