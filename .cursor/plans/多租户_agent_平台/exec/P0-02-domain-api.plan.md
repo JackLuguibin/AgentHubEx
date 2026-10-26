@@ -4,30 +4,31 @@ overview: apps/hub-api：User/Tenant/Project/Membership/Issue/凭据/实例 CRUD
 todos:
   - id: extend-db-schema
     content: 扩展 packages/db：credentials/runtime/issues/sessions 等 P0 所需表（对齐 15）
-    status: pending
+    status: completed
   - id: scaffold-hub-api
     content: 创建 apps/hub-api：Hono + zod-openapi 骨架、中间件链、错误码
-    status: pending
+    status: completed
   - id: auth-routes
     content: 实现注册/登录/刷新 JWT 与 /v1/me（对齐 03/16）
-    status: pending
+    status: completed
   - id: tenant-project-crud
     content: 实现 Tenant/Project 生命周期 API（active/suspended/archived）
-    status: pending
+    status: completed
   - id: membership-rules
     content: 实现双层 Membership：邮箱复用、级联解绑、保护最后 owner
-    status: pending
+    status: completed
   - id: issue-cred-instance-api
     content: 实现 Issue/UserCredential/ProjectCredential/RuntimeInstance 基础 CRUD（密文只写）
-    status: pending
+    status: completed
   - id: seed-dev
     content: 新增开发 seed：平台管理员 + 示例租户/项目/成员
-    status: pending
+    status: completed
   - id: dod-api-tests
     content: DoD：级联/最后 owner 集成测绿；关键路由 OpenAPI/zod 校验通过
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P0-02 领域 API
 
 > **索引 todo**：`phase0-domain` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["src/tests/**/*"],
+  "references": [
+    { "path": "../../packages/auth" },
+    { "path": "../../packages/db" },
+    { "path": "../../packages/domain" }
+  ]
+}

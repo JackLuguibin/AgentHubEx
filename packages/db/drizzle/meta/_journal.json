@@ -8,6 +8,13 @@
       "when": 1730000000000,
       "tag": "0000_p0_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1730000001000,
+      "tag": "0001_p0_domain",
+      "breakpoints": true
     }
   ]
 }

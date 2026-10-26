@@ -5,3 +5,12 @@ export {
   projects,
   projectMemberships,
 } from "./identity.js";
+export {
+  userCredentials,
+  projectCredentials,
+  credentialVersions,
+} from "./credentials.js";
+export { runtimeInstances, projectRuntimeBindings } from "./runtime.js";
+export { workspaces, agentSessions } from "./workspaces.js";
+export { projectIssues } from "./issues.js";
+export { hubApiKeys } from "./api-keys.js";
