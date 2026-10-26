@@ -75,7 +75,7 @@ type Me = {
   id: Uuid; email: string; displayName: string; handle: string
   isPlatformAdmin: boolean
   currentTenantId: Uuid | null
-  tenants: { id: Uuid; slug: string; name: string; role: TenantRole }[]
+  tenants: { id: Uuid; slug: string; name: string; role: TenantRole; status: 'active' | 'suspended' }[]
 }
 ```
 
@@ -93,6 +93,7 @@ type TenantQuota = {
   maxActiveWorkspaces: number            // 默认 50（租户合计，含双引擎工作区）
   tokensPerDay?: number                  // 可选；未设=不限；超限见 04 §4.8.1
 }
+// GET   /v1/admin/tenants        (platform.admin) → Page<Tenant>
 // POST  /v1/admin/tenants        (platform.admin) { slug, name, ownerEmail } → Tenant
 // GET   /v1/tenants/{t}          → Tenant
 // PATCH /v1/tenants/{t}          { name?, quota?, settings? } → Tenant

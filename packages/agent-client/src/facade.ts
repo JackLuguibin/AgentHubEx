@@ -1,5 +1,16 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
-import type { AgentSession, Workspace } from "@agenthub/domain";
+import type {
+  AgentSession,
+  CreateProjectReq,
+  CreateTenantReq,
+  Me,
+  PatchProjectReq,
+  PatchTenantReq,
+  Project,
+  Tenant,
+  TenantMember,
+  Workspace,
+} from "@agenthub/domain";
 import type { Envelope } from "@agenthub/runtime-contract";
 import type { KyInstance } from "ky";
 
@@ -24,33 +35,95 @@ export function createFacadeClient(http: KyInstance) {
     async login(email: string, password: string) {
       return http
         .post("v1/auth/login", { json: { email, password } })
-        .json<{ accessToken: string; expiresIn: number; user: unknown }>();
+        .json<{ accessToken: string; expiresIn: number; user: Me }>();
     },
 
     async me() {
-      return http.get("v1/me").json();
+      return http.get("v1/me").json<Me>();
     },
 
+    async listAdminTenants() {
+      return http.get("v1/admin/tenants").json<Page<Tenant>>();
+    },
+
+    /** @deprecated Prefer listAdminTenants for platform admin or Me.tenants for memberships. */
     async listTenants() {
-      return http.get("v1/tenants").json<Page<{ id: string; slug: string; name: string }>>();
+      return this.listAdminTenants();
     },
 
-    async listProjects(tenantId: string) {
+    async createTenant(input: CreateTenantReq) {
+      return http.post("v1/admin/tenants", { json: input }).json<Tenant>();
+    },
+
+    async getTenant(tenantId: string) {
+      return http.get(`v1/tenants/${tenantId}`).json<Tenant>();
+    },
+
+    async patchTenant(tenantId: string, input: PatchTenantReq) {
+      return http.patch(`v1/tenants/${tenantId}`, { json: input }).json<Tenant>();
+    },
+
+    async suspendTenant(tenantId: string, reason?: string) {
       return http
-        .get(`v1/tenants/${tenantId}/projects`)
-        .json<Page<{ id: string; key: string; name: string }>>();
+        .post(`v1/admin/tenants/${tenantId}/suspend`, {
+          json: reason ? { reason } : {},
+        })
+        .json<Tenant>();
+    },
+
+    async unsuspendTenant(tenantId: string) {
+      return http.post(`v1/admin/tenants/${tenantId}/unsuspend`).json<Tenant>();
+    },
+
+    async listTenantMembers(tenantId: string) {
+      return http.get(`v1/tenants/${tenantId}/members`).json<Page<TenantMember>>();
+    },
+
+    async listProjects(
+      tenantId: string,
+      opts: { archived?: boolean; q?: string } = {},
+    ) {
+      const searchParams = new URLSearchParams();
+      if (opts.archived) searchParams.set("archived", "true");
+      if (opts.q) searchParams.set("q", opts.q);
+      const qs = searchParams.toString();
+      return http
+        .get(`v1/tenants/${tenantId}/projects${qs ? `?${qs}` : ""}`)
+        .json<Page<Project>>();
+    },
+
+    async createProject(tenantId: string, input: CreateProjectReq) {
+      return http
+        .post(`v1/tenants/${tenantId}/projects`, { json: input })
+        .json<Project>();
+    },
+
+    async getProject(projectId: string) {
+      return http.get(`v1/projects/${projectId}`).json<Project>();
+    },
+
+    async patchProject(projectId: string, input: PatchProjectReq) {
+      return http.patch(`v1/projects/${projectId}`, { json: input }).json<Project>();
+    },
+
+    async archiveProject(projectId: string) {
+      return http.post(`v1/projects/${projectId}/archive`).json<Project>();
+    },
+
+    async unarchiveProject(projectId: string) {
+      return http.post(`v1/projects/${projectId}/unarchive`).json<Project>();
     },
 
     async switchTenant(tenantId: string) {
       return http
         .post("v1/auth/switch-tenant", { json: { tenantId } })
-        .json<{ accessToken: string; expiresIn: number; user: unknown }>();
+        .json<{ accessToken: string; expiresIn: number; user: Me }>();
     },
 
     async refresh() {
       return http
         .post("v1/auth/refresh")
-        .json<{ accessToken: string; expiresIn: number; user: unknown }>();
+        .json<{ accessToken: string; expiresIn: number; user: Me }>();
     },
 
     async logout() {

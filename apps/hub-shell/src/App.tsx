@@ -45,6 +45,7 @@ export function App() {
           <Route index element={<HomePage />} />
           <Route path="tenants" element={<TenantsPage />} />
           <Route path="projects" element={<ProjectsPage />} />
+          <Route path="t/:tenantId/projects" element={<ProjectsPage />} />
           <Route path="p/:projectId/overview" element={<OverviewPage />} />
           <Route path="p/:projectId/board" element={<BoardPage />} />
           <Route path="p/:projectId/workbench" element={<WorkbenchPage />} />

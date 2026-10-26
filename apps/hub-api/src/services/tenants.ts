@@ -88,6 +88,15 @@ export async function getTenant(db: Db, tenantId: string) {
   return mapTenant(row);
 }
 
+/** Platform admin: list all tenants (paginated cursor reserved). */
+export async function listAllTenants(db: Db) {
+  const rows = await db.select().from(tenants);
+  return {
+    items: rows.map(mapTenant),
+    nextCursor: null as string | null,
+  };
+}
+
 export async function getTenantRow(db: Db, tenantId: string) {
   const [row] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
   if (!row) throw notFound("Tenant not found");

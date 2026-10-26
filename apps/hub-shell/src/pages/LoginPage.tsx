@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from "react-router";
 import { Button, Icon, Input, cn, ui } from "@agenthub/hub-ui-kit";
 import { ArrowUpRight } from "lucide-react";
 import { useAuth } from "../auth/AuthProvider.js";
+import { getApiErrorMessage } from "../lib/api-error.js";
 
 export function LoginPage() {
   const { user, loading, login } = useAuth();
@@ -58,8 +59,8 @@ export function LoginPage() {
             setError(null);
             void login(email, password)
               .then(() => navigate("/"))
-              .catch((err: unknown) =>
-                setError(err instanceof Error ? err.message : "登录失败"),
+              .catch(async (err: unknown) =>
+                setError(await getApiErrorMessage(err, "登录失败")),
               )
               .finally(() => setPending(false));
           }}

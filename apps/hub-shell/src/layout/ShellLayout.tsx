@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Link,
   NavLink,
@@ -18,6 +18,13 @@ import {
 } from "lucide-react";
 import { useAuth } from "../auth/AuthProvider.js";
 import { useTenant } from "../auth/TenantProvider.js";
+import { TopbarSwitcher } from "../components/TopbarSwitcher.js";
+import {
+  filterSwitcherTenants,
+  isProjectUsable,
+  isTenantUsable,
+} from "../lib/space-availability.js";
+import { useToast } from "../lib/toast.js";
 import {
   adminNav,
   crumbLabels,
@@ -37,11 +44,13 @@ function NavGroup({
   hint,
   items,
   projectId,
+  tenantId,
 }: {
   label: string;
   hint?: string;
   items: NavItem[];
   projectId: string | null;
+  tenantId: string | null;
 }) {
   return (
     <>
@@ -54,12 +63,16 @@ function NavGroup({
           const to =
             item.scope === "platform"
               ? item.key === "projects"
-                ? "/projects"
+                ? tenantId
+                  ? `/t/${tenantId}/projects`
+                  : "/projects"
                 : `/${item.key}`
               : projectId
                 ? `/p/${projectId}/${item.key}`
-                : "/projects";
-          const Icon = item.icon;
+                : tenantId
+                  ? `/t/${tenantId}/projects`
+                  : "/projects";
+          const ItemIcon = item.icon;
           return (
             <NavLink
               key={item.key}
@@ -72,7 +85,7 @@ function NavGroup({
                 )
               }
             >
-              <Icon className="h-[17px] w-[17px] shrink-0" strokeWidth={1.6} />
+              <ItemIcon className="h-[17px] w-[17px] shrink-0" strokeWidth={1.6} />
               {item.label}
               {item.phase ? (
                 <span className="ml-auto text-[9px] text-[#a0aaa1]">{item.phase}</span>
@@ -87,30 +100,68 @@ function NavGroup({
 
 export function ShellLayout() {
   const { user, logout } = useAuth();
-  const { tenantId, projects, projectId, setProjectId, switchTenant } = useTenant();
+  const { tenantId, projects, projectId, switchTenant, loadingProjects } =
+    useTenant();
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
+  const { toast } = useToast();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const activeProjectId = params.projectId ?? projectId;
   const tenant = user?.tenants.find((t) => t.id === tenantId) ?? user?.tenants[0];
+  const activeProject =
+    projects.find((p) => p.id === activeProjectId) ??
+    projects.find((p) => p.id === projectId) ??
+    null;
 
   const crumb = useMemo(() => {
     const seg = location.pathname.split("/").filter(Boolean);
     const last = seg[seg.length - 1] ?? "";
     if (last in crumbLabels) return crumbLabels[last]!;
-    if (seg[0] === "projects") return "项目管理";
+    if (seg[0] === "projects" || (seg[0] === "t" && seg[2] === "projects")) {
+      return "项目管理";
+    }
     if (seg[0] === "tenants") return "租户管理";
     return "项目概览";
   }, [location.pathname]);
 
-  const onProjectChange = (id: string) => {
-    setProjectId(id);
-    const page =
-      location.pathname.match(/\/p\/[^/]+\/([^/?]+)/)?.[1] ?? "overview";
-    navigate(`/p/${id}/${page}`);
-  };
+  // Block workspace entry when tenant suspended or project archived / unbound.
+  useEffect(() => {
+    const onProjectRoute = location.pathname.startsWith("/p/");
+    if (!onProjectRoute || loadingProjects) return;
+    const tenantOk = isTenantUsable(
+      tenant
+        ? {
+            id: tenant.id,
+            name: tenant.name,
+            slug: tenant.slug,
+            status: tenant.status,
+          }
+        : null,
+    );
+    // Unknown project id after load ⇒ treat as unavailable.
+    const projectOk = activeProject
+      ? isProjectUsable(activeProject)
+      : Boolean(activeProjectId) === false;
+    if (!tenantOk || (activeProjectId && !projectOk)) {
+      toast("租户或项目不可用，工作区入口已阻断");
+      navigate(tenantId ? `/t/${tenantId}/projects` : "/projects", {
+        replace: true,
+      });
+    }
+  }, [
+    location.pathname,
+    tenant,
+    activeProject,
+    activeProjectId,
+    tenantId,
+    loadingProjects,
+    navigate,
+    toast,
+  ]);
+
+  const switchableTenants = filterSwitcherTenants(user?.tenants ?? []);
 
   return (
     <>
@@ -124,7 +175,13 @@ export function ShellLayout() {
       >
         <Link
           className="flex items-center gap-[9px] px-2 text-[21px] font-[750] tracking-[-0.8px] text-ah-text no-underline"
-          to={activeProjectId ? `/p/${activeProjectId}/overview` : "/projects"}
+          to={
+            activeProjectId && isProjectUsable(activeProject)
+              ? `/p/${activeProjectId}/overview`
+              : tenantId
+                ? `/t/${tenantId}/projects`
+                : "/projects"
+          }
         >
           <span className="relative inline-flex h-[31px] w-[29px] items-center justify-center rounded-lg bg-ah-accent text-[17px] text-white">
             a
@@ -144,11 +201,16 @@ export function ShellLayout() {
           type="button"
           className="my-7 mb-6 flex w-full cursor-pointer items-center gap-2.5 rounded-[9px] border border-ah-line bg-white px-2 py-3 text-left hover:bg-[#fafbfe]"
           onClick={() => {
-            const list = user?.tenants ?? [];
-            if (list.length < 2 || !tenantId) return;
-            const idx = list.findIndex((t) => t.id === tenantId);
-            const next = list[(idx + 1) % list.length]!;
-            void switchTenant(next.id);
+            if (switchableTenants.length < 2 || !tenantId) {
+              navigate("/tenants");
+              return;
+            }
+            const idx = switchableTenants.findIndex((t) => t.id === tenantId);
+            const next =
+              switchableTenants[(idx + 1) % switchableTenants.length]!;
+            void switchTenant(next.id).then(() => {
+              navigate(`/t/${next.id}/projects`);
+            });
           }}
           title="切换租户"
         >
@@ -161,6 +223,7 @@ export function ShellLayout() {
             </strong>
             <small className="mt-1 block text-[10px] text-ah-muted">
               团队空间 · {tenant?.role ?? "—"}
+              {tenant?.status === "suspended" ? " · 已停用" : ""}
             </small>
           </span>
           <Icon icon={ChevronDown} size="sm" className="text-ah-muted" />
@@ -170,13 +233,24 @@ export function ShellLayout() {
           className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 -mx-2 [scrollbar-width:thin]"
           aria-label="平台导航"
         >
-          <NavGroup label="平台与组织" items={managementNav} projectId={activeProjectId} />
-          <NavGroup label="工作空间" items={workspaceNav} projectId={activeProjectId} />
+          <NavGroup
+            label="平台与组织"
+            items={managementNav}
+            projectId={activeProjectId}
+            tenantId={tenantId}
+          />
+          <NavGroup
+            label="工作空间"
+            items={workspaceNav}
+            projectId={activeProjectId}
+            tenantId={tenantId}
+          />
           <NavGroup
             label="项目配置"
             hint="OWNER"
             items={adminNav}
             projectId={activeProjectId}
+            tenantId={tenantId}
           />
         </div>
 
@@ -231,38 +305,16 @@ export function ShellLayout() {
           >
             <Icon icon={Menu} size="md" />
           </button>
-          <div className="flex min-w-0 items-center gap-3 text-[11px] text-[#667085]">
-            <span>工作空间</span>
-            <span>/</span>
-            <select
-              aria-label="切换项目"
-              className="max-w-40 cursor-pointer border-0 bg-transparent p-0 font-semibold text-[#344054]"
-              value={activeProjectId ?? ""}
-              onChange={(e) => onProjectChange(e.target.value)}
-              disabled={projects.length === 0}
-            >
-              {projects.length === 0 ? (
-                <option value="">无项目</option>
-              ) : (
-                projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.key}
-                  </option>
-                ))
-              )}
-            </select>
-            <span>/</span>
-            <strong className="truncate font-medium text-[#344054]">{crumb}</strong>
-          </div>
+          <TopbarSwitcher crumb={crumb} />
           <div className="flex shrink-0 items-center gap-4">
             <span className="rounded-[5px] border border-[#e5e9e4] px-2 py-[5px] text-[9px] tracking-[0.5px] text-[#8b958b] max-[680px]:hidden">
-              P0 · SPA 联调
+              P1 · 租户/项目
             </span>
             <button
               type="button"
               className="grid h-[30px] w-[26px] cursor-pointer place-items-center border-0 bg-transparent text-[#829087] hover:text-[#344054]"
               aria-label="全局搜索"
-              title="Search（P1）"
+              title="Search（后续）"
             >
               <Icon icon={Search} size="md" />
             </button>
@@ -270,7 +322,7 @@ export function ShellLayout() {
               type="button"
               className="relative grid h-[30px] w-[26px] cursor-pointer place-items-center border-0 bg-transparent text-[#829087] hover:text-[#344054]"
               aria-label="通知"
-              title="通知（P1）"
+              title="通知（后续）"
             >
               <Icon icon={Bell} size="md" />
               <i className="absolute top-1.5 right-1 h-1 w-1 rounded-full bg-[#c89366]" />

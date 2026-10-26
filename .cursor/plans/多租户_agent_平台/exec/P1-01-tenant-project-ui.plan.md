@@ -4,24 +4,25 @@ overview: 租户管理/项目管理页 + 顶栏切换器（仅已绑定可用空
 todos:
   - id: pages-tenants
     content: 实现 tenants 页：列表/搜索/状态/配额/启停（对齐 html tenants）
-    status: pending
+    status: completed
   - id: pages-projects
     content: 实现 projects 页：创建编辑/归档恢复/引擎与凭据策略入口
-    status: pending
+    status: completed
   - id: topbar-switcher
     content: 顶栏租户/项目切换器：仅已绑定且 active/未归档空间
-    status: pending
+    status: completed
   - id: nav-platform-group
     content: Shell 侧栏「平台与组织」导航组接通路由
-    status: pending
+    status: completed
   - id: api-wire
     content: 前端 ky/Query 对接 P0 Tenant/Project API；错误 toast
-    status: pending
+    status: completed
   - id: dod-switcher
     content: DoD：切换空间刷新上下文；停用/归档空间不出现在切换器
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P1-01 租户 / 项目管理页
 
 > **索引 todo**：`phase1-tenant-project-mgmt` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

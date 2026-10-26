@@ -67,6 +67,7 @@ export const MeSchema = z.object({
       slug: z.string(),
       name: z.string(),
       role: TenantRoleSchema,
+      status: TenantStatusSchema,
     }),
   ),
 });
@@ -443,7 +444,12 @@ export const WorkspaceSchema = z.object({
 
 export type Me = z.infer<typeof MeSchema>;
 export type Tenant = z.infer<typeof TenantSchema>;
+export type TenantMember = z.infer<typeof TenantMemberSchema>;
+export type CreateTenantReq = z.infer<typeof CreateTenantReqSchema>;
+export type PatchTenantReq = z.infer<typeof PatchTenantReqSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
+export type CreateProjectReq = z.infer<typeof CreateProjectReqSchema>;
+export type PatchProjectReq = z.infer<typeof PatchProjectReqSchema>;
 export type Issue = z.infer<typeof IssueSchema>;
 export type UserCredential = z.infer<typeof UserCredentialSchema>;
 export type ProjectCredential = z.infer<typeof ProjectCredentialSchema>;

@@ -12,6 +12,7 @@ import {
   addTenantMember,
   createTenant,
   getTenant,
+  listAllTenants,
   listTenantMembers,
   patchTenant,
   patchTenantMember,
@@ -24,6 +25,10 @@ import {
 export function tenantRoutes() {
   const app = new OpenAPIHono<AppEnv>();
   app.use("*", requireAuth);
+
+  app.get("/admin/tenants", requirePlatformAdmin, async (c) => {
+    return c.json(await listAllTenants(c.get("db")));
+  });
 
   app.post("/admin/tenants", async (c) => {
     if (!c.get("principal")?.isPlatformAdmin) throw forbidden("Platform admin required");

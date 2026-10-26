@@ -7,17 +7,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { Me } from "@agenthub/domain";
 import { api, API_BASE, getAccessToken, setAccessToken } from "../lib/api.js";
 
-export type AuthUser = {
-  id: string;
-  email: string;
-  displayName: string;
-  handle: string;
-  isPlatformAdmin: boolean;
-  currentTenantId: string | null;
-  tenants: Array<{ id: string; slug: string; name: string; role: string }>;
-};
+export type AuthUser = Me;
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -58,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setAccessToken(token);
     }
-    const me = (await api.me()) as AuthUser;
+    const me = await api.me();
     setUser(me);
   }, []);
 
@@ -81,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const res = await api.login(email, password);
     setAccessToken(res.accessToken);
-    setUser(res.user as AuthUser);
+    setUser(res.user);
   }, []);
 
   const logout = useCallback(async () => {

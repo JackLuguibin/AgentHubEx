@@ -49,6 +49,7 @@ export async function buildMe(
       slug: m.slug,
       name: m.name,
       role: m.role as TenantRole,
+      status: m.status as "active" | "suspended",
     })),
   };
 }

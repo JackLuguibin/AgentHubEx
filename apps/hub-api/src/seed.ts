@@ -37,14 +37,20 @@ async function main() {
       .returning();
     admin = row!;
     logger.info({ email: adminEmail }, "created platform admin");
-  } else if (!admin.isPlatformAdmin) {
+  } else {
+    // Local/dev: keep bootstrap password in sync so demo login stays usable after tests wipe/recreate DB.
     await db
       .update(users)
-      .set({ isPlatformAdmin: true, updatedAt: new Date() })
+      .set({
+        isPlatformAdmin: true,
+        passwordHash: await ensurePasswordHash(adminPassword),
+        status: "active",
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, admin.id));
-    logger.info({ email: adminEmail }, "promoted user to platform admin");
-  } else {
-    logger.info({ email: adminEmail }, "platform admin already exists");
+    const [fresh] = await db.select().from(users).where(eq(users.id, admin.id)).limit(1);
+    admin = fresh!;
+    logger.info({ email: adminEmail }, "synced platform admin password / privileges");
   }
 
   const demoSlug = "acme";
