@@ -2,6 +2,8 @@
 
 产品默认在**客户内网**运行，不依赖公网。可进一步做到**断网空气隔离**（构建与镜像由外网机导入）。见 ADR-011。
 
+**仓库落地约定**（目录树、Registry 导入、变量表摘录、无 CDN 清单、P1 打包占位）：[`deploy/offline-bundle/README.md`](../../deploy/offline-bundle/README.md)。P1 验收 N1–N4 见 [P1-08](../../.cursor/plans/多租户_agent_平台/exec/P1-08-isolation-acceptance.plan.md)。
+
 ## 18.1 部署档位
 
 | 档位 | 含义 | 首版目标 |
@@ -62,6 +64,7 @@ docker build 各镜像
 - `pnpm-lock.yaml` 锁定；离线可用 `pnpm fetch` + 缓存目录随 bundle 提供（仅构建机需要时）。
 - 前端构建：**自托管字体**（若用非系统字体），Tailwind/shadcn 无运行时 CDN。
 - OpenCode / worker 基础镜像预拉并重打 tag 到私有仓库。
+- 目录与导入步骤见 [`deploy/offline-bundle/README.md`](../../deploy/offline-bundle/README.md)；打包入口（P1 占位）[`scripts/build-offline-bundle.sh`](../../scripts/build-offline-bundle.sh)。
 
 ## 18.5 模型与凭据（内网）
 
@@ -82,7 +85,7 @@ docker build 各镜像
 | N1 | 断开公网后 `compose up` 全栈 | Hub 登录、看板、登记内网 opencode、开会话成功 |
 | N2 | 浏览器 DevTools | 无对公网域名的请求 |
 | N3 | Worker 容器 | 无法访问公网 IP；可访问 allowlist 内 LLM |
-| N4 | 仅导入 bundle（无 npm registry） | 按手册完成安装升级 |
+| N4 | 仅导入 bundle（无 npm registry） | 按手册完成安装升级；介质布局与导入见 [`deploy/offline-bundle/README.md`](../../deploy/offline-bundle/README.md)；执行勾选见 [P1-08](../../.cursor/plans/多租户_agent_平台/exec/P1-08-isolation-acceptance.plan.md) |
 
 ## 18.8 与开发档差异 / 本地体验
 

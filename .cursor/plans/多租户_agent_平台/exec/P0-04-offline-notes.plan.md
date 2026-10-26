@@ -4,24 +4,25 @@ overview: 记录 offline-bundle 目录、私有 Registry 导入与 DEPLOY_PROFIL
 todos:
   - id: offline-bundle-layout
     content: 在 deploy/ 或 docs 写明 offline-bundle 目录约定（镜像/npm/配置）
-    status: pending
+    status: completed
   - id: registry-import-steps
     content: 文档化私有 Registry / 内网镜像导入步骤（对齐 18）
-    status: pending
+    status: completed
   - id: env-profile-matrix
     content: 整理 DEPLOY_PROFILE=intranet 环境变量清单表（引用 18）
-    status: pending
+    status: completed
   - id: no-cdn-checklist
     content: 添加静态检查清单：禁外链字体/脚本/Docker Hub 硬依赖说明
-    status: pending
+    status: completed
   - id: p1-script-placeholder
     content: 标注打包脚本为 P1：路径占位 + 验收引用 N4
-    status: pending
+    status: completed
   - id: dod-docs-linked
     content: DoD：P1-08/N4 可从本约定链接到具体目录与变量表
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P0-04 离线 / 内网约定文档
 
 > **索引 todo**：`phase0-offline-notes` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

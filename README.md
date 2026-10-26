@@ -11,6 +11,8 @@
 
 **前端约定**：禁止运行时外链字体/脚本（Google Fonts、unpkg、jsDelivr 等）；静态资源随 `hub-shell` 自托管。
 
+**离线 / 内网介质**：目录与 Registry 导入约定见 [`deploy/offline-bundle/README.md`](deploy/offline-bundle/README.md)（打包脚本 P1：`scripts/build-offline-bundle.sh`）。
+
 ## 快速开始（P0 骨架）
 
 ```bash
