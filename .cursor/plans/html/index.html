@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentHubEx · 项目控制台</title>
+  <meta name="description" content="AgentHubEx 多租户 Agent 平台交互设计原型">
+  <link rel="stylesheet" href="styles.css?v=20261026-multi-membership">
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="#board"><span class="brand-mark">a<span>↗</span></span>AgentHub<span class="brand-ex">EX</span></a>
+    <button class="tenant-switch" data-action="tenant"><span class="tenant-logo">N</span><span><strong>Northstar Studio</strong><small>团队空间 · Pro</small></span><span class="muted">⌄</span></button>
+    <div class="sidebar-navigation" aria-label="平台导航">
+      <div class="nav-label">平台与组织</div><nav id="management-nav"></nav>
+      <div class="nav-label">工作空间</div><nav id="main-nav"></nav>
+      <div class="nav-label">项目配置 <span>OWNER</span></div><nav id="admin-nav"></nav>
+    </div>
+    <div class="sidebar-bottom"><div class="capacity"><div>本月 Token 用量 <strong>64%</strong></div><div class="progress"><i style="width:64%"></i></div><small>6.4M / 10M · 11 月 1 日重置</small></div><button class="profile" data-action="profile"><span class="avatar green">JL</span><span><strong>Jack Lu</strong><small>组织所有者</small></span><span>···</span></button></div>
+  </aside>
+  <div class="app-shell"><header class="topbar"><button class="icon-button mobile-menu" aria-label="打开导航" data-action="menu">☰</button><div class="breadcrumb">工作空间 <span>/</span><button data-action="project">AgentHubEx <span>⌄</span></button><span>/</span><strong id="crumb">项目看板</strong></div><div class="top-tools"><span class="prototype">交互设计预览</span><button class="icon-button" data-action="search" aria-label="全局搜索">⌕</button><button class="icon-button notification" data-action="notifications" aria-label="通知">♧<i></i></button><span class="avatar small green">JL</span></div></header><main id="content"></main><footer>AgentHubEx <span>工作有边界，协作无阻碍。</span><span class="footer-status"><i class="dot"></i> 所有系统运行正常 <span>·</span> 本地原型 / 示例数据</span></footer></div>
+  <dialog id="modal"><div id="modal-content"></div></dialog><div id="toast" role="status" aria-live="polite"></div>
+  <script src="workspace.js?v=20261026-multi-membership"></script>
+  <script src="common-tree.js?v=20261026-multi-membership"></script>
+  <script src="layout.js?v=20261026-multi-membership"></script>
+  <script src="credential-form.js?v=20261026-multi-membership"></script>
+  <script src="management.js?v=20261026-multi-membership"></script>
+  <script src="memberships.js?v=20261026-multi-membership"></script>
+  <script src="app.js?v=20261026-multi-membership"></script>
+</body>
+</html>
