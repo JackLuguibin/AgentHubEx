@@ -149,6 +149,8 @@ export const ProjectSettingsSchema = z.object({
   defaultRuntimeType: RuntimeTypeSchema.default("opencode"),
   issuePromptTemplate: z.string().optional(),
   allowedProviderHosts: z.array(z.string()).optional(),
+  /** `managed` forces Node Agent scheduling. Label-selector bindings do the same. */
+  runtimeDelivery: z.enum(["external", "managed"]).optional(),
 });
 
 export const ProjectSchema = z.object({

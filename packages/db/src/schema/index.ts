@@ -10,6 +10,7 @@ export {
   projectCredentials,
   credentialVersions,
 } from "./credentials.js";
+export { nodes, nodeBootstrapTokens } from "./nodes.js";
 export { runtimeInstances, projectRuntimeBindings } from "./runtime.js";
 export { workspaces, agentSessions } from "./workspaces.js";
 export { projectIssues } from "./issues.js";

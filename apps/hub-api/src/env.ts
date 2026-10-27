@@ -46,6 +46,14 @@ export const env = createEnv({
       .enum(["intranet", "airgap", "internet-lab"])
       .default("intranet"),
     CORS_ORIGIN: z.string().default("http://localhost:5173"),
+    /** Directory for the Hub CA that signs node-agent certificates. */
+    NODE_CA_DIR: z.string().default("data/node-ca"),
+    /** mTLS port for node heartbeats. 0 leaves the listener off. */
+    NODE_MTLS_PORT: z.coerce.number().int().nonnegative().default(0),
+    MIN_AGENT_VERSION: z.string().default("0.1.0"),
+    WORKER_OPENCODE_IMAGE: z.string().default("agenthub/worker-opencode"),
+    IDLE_TTL_MS: z.coerce.number().int().positive().default(30 * 60 * 1000),
+    STOP_TTL_MS: z.coerce.number().int().positive().default(24 * 60 * 60 * 1000),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

@@ -29,6 +29,13 @@
       "when": 1730000003000,
       "tag": "0003_p1_common",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1730000004000,
+      "tag": "0004_p2_nodes",
+      "breakpoints": true
     }
   ]
 }

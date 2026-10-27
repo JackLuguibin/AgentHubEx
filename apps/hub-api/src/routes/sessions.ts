@@ -12,6 +12,8 @@ import {
 import { makeEnvelope, type Envelope } from "@agenthub/runtime-contract";
 import { opencodeAdapter } from "@agenthub/adapter-opencode";
 import type { AppEnv } from "../context.js";
+import type { HubRuntime } from "../lib/hub-runtime.js";
+import { startOwnedWorkspace, stopOwnedWorkspace } from "../services/scheduler.js";
 import { requireAuth } from "../middleware/auth.js";
 import { publishBoard } from "../lib/board-events.js";
 import { cursorMissing, streamSeqs } from "../lib/sse-cursor.js";
@@ -57,6 +59,17 @@ function openApiApp() {
 }
 
 const UuidParam = z.string().uuid();
+
+function runtimeOf(env: AppEnv["Variables"]["env"], redis: AppEnv["Variables"]["redis"]): HubRuntime {
+  return {
+    platformDek: env.PLATFORM_DEK,
+    runtimeMock: env.RUNTIME_MOCK,
+    redis,
+    nodeCaDir: env.NODE_CA_DIR,
+    minAgentVersion: env.MIN_AGENT_VERSION,
+    workerImage: env.WORKER_OPENCODE_IMAGE,
+  };
+}
 
 export function sessionRoutes() {
   const app = openApiApp();
@@ -129,10 +142,8 @@ export function sessionRoutes() {
         projectId,
         p.userId,
         p.isPlatformAdmin,
-        env.PLATFORM_DEK,
-        env.RUNTIME_MOCK,
         body,
-        c.get("redis"),
+        runtimeOf(env, c.get("redis")),
       );
       if (body.issueId) {
         try {
@@ -178,14 +189,39 @@ export function sessionRoutes() {
         projectId,
         p.userId,
         p.isPlatformAdmin,
-        env.PLATFORM_DEK,
-        env.RUNTIME_MOCK,
+        runtimeOf(env, c.get("redis")),
         query.runtimeType,
       );
       const status = ws.status === "provisioning" ? 202 : 200;
       return c.json(ws, status);
     },
   );
+
+  app.post("/workspaces/:w/start", async (c) => {
+    const p = c.get("principal")!;
+    return c.json(
+      await startOwnedWorkspace(
+        c.get("db"),
+        runtimeOf(c.get("env"), c.get("redis")),
+        c.req.param("w"),
+        p.userId,
+        p.isPlatformAdmin,
+      ),
+    );
+  });
+
+  app.post("/workspaces/:w/stop", async (c) => {
+    const p = c.get("principal")!;
+    return c.json(
+      await stopOwnedWorkspace(
+        c.get("db"),
+        runtimeOf(c.get("env"), c.get("redis")),
+        c.req.param("w"),
+        p.userId,
+        p.isPlatformAdmin,
+      ),
+    );
+  });
 
   app.post("/workspaces/:w/sync-config", async (c) => {
     const p = c.get("principal")!;
@@ -344,10 +380,8 @@ export function sessionRoutes() {
         sessionId,
         p.userId,
         p.isPlatformAdmin,
-        env.PLATFORM_DEK,
-        env.RUNTIME_MOCK,
         body,
-        c.get("redis"),
+        runtimeOf(env, c.get("redis")),
       );
       return c.json(result, 202);
     },

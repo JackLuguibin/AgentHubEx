@@ -17,6 +17,7 @@ import { issueRoutes } from "./routes/issues.js";
 import { membershipRoutes } from "./routes/memberships.js";
 import { projectRoutes } from "./routes/projects.js";
 import { sessionRoutes } from "./routes/sessions.js";
+import { nodeRoutes } from "./routes/nodes.js";
 import { syncRoutes } from "./routes/sync.js";
 import { tenantRoutes } from "./routes/tenants.js";
 
@@ -101,6 +102,7 @@ export function createApp(options: CreateAppOptions = {}) {
     },
   });
   v1.route("/auth", authRoutes());
+  v1.route("/", nodeRoutes());
   v1.route("/sync", syncRoutes());
   v1.route("/me", meRoutes());
   v1.route("/", tenantRoutes());

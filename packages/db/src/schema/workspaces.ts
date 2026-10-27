@@ -49,6 +49,7 @@ export const workspaces = pgTable(
       .on(t.projectId, t.ownerUserId, t.runtimeType)
       .where(sql`${t.kind} = 'personal' AND ${t.status} <> 'deleted'`),
     index("ix_workspaces_instance").on(t.instanceId),
+    index("ix_workspaces_idle").on(t.status, t.lastActiveAt),
     check("ck_workspaces_kind", sql`${t.kind} IN ('personal')`),
     check("ck_workspaces_runtime_type", sql`${t.runtimeType} IN ('opencode','claude')`),
     check(

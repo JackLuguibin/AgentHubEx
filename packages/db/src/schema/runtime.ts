@@ -13,6 +13,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { projects, tenants } from "./identity.js";
+import { nodes } from "./nodes.js";
 
 const bytea = customType<{ data: Buffer }>({
   dataType() {
@@ -25,7 +26,7 @@ export const runtimeInstances = pgTable(
   {
     id: uuid("id").primaryKey(),
     tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "cascade" }),
-    nodeId: uuid("node_id"),
+    nodeId: uuid("node_id").references(() => nodes.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     mode: text("mode").notNull(),
     runtimeType: text("runtime_type").notNull(),

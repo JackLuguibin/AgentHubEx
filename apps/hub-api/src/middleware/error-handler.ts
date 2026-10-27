@@ -8,6 +8,8 @@ export const errorHandler: ErrorHandler<AppEnv> = (err, c) => {
   const requestId = c.get("requestId") ?? "unknown";
 
   if (err instanceof AppError) {
+    const retryAfter = err.details?.retryAfter;
+    if (typeof retryAfter === "number") c.header("Retry-After", String(retryAfter));
     return c.json(
       {
         error: {
