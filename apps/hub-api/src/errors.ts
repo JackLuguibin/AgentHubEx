@@ -10,6 +10,10 @@ export type ErrorCode =
   | "TENANT_SUSPENDED"
   | "PROJECT_ARCHIVED"
   | "INVALID_TRANSITION"
+  | "INVALID_PATH"
+  | "PROTECTED_PATH"
+  | "QUOTA_EXCEEDED"
+  | "PRECONDITION_FAILED"
   | "INTERNAL";
 
 export class AppError extends Error {

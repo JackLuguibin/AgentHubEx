@@ -1,3 +1,4 @@
+import { withCommonWriteDeny } from "@agenthub/common-fs";
 import type { Manifest, SecretRef } from "@agenthub/domain";
 import { CLAUDE_PATHS, OPENCODE_PATHS } from "@agenthub/runtime-contract";
 import { sha256Buffer } from "./hash.js";
@@ -125,8 +126,7 @@ function renderOpencode(manifest: Manifest, existingConfig: string | null): Rend
   next.agent = agent;
   next.mcp = mcp;
   next.instructions = instructions;
-  if (manifest.permission) next.permission = manifest.permission;
-  else delete next.permission;
+  next.permission = withCommonWriteDeny(manifest.permission as Record<string, unknown> | undefined);
   if (manifest.model) next.model = manifest.model;
   else delete next.model;
   next.agenthub = { managed: true };

@@ -8,7 +8,7 @@ import { syncOnce } from "./sync.js";
 
 function signedTask(
   privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"],
-  body: { id: string; type: "apply"; manifest: Record<string, string>; urls: string[] },
+  body: { id: string; type: "apply" | "common"; manifest: Record<string, string>; urls: string[] },
 ) {
   const signature = sign(null, Buffer.from(canonicalJson(body)), privateKey).toString("base64url");
   return { ...body, signature };
@@ -137,5 +137,39 @@ describe("agenthub-sync", () => {
         fetchImpl,
       }),
     ).rejects.toThrow(/签名/);
+  });
+
+  it("materializes project-common as a read-only tree", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "ah-sync-common-"));
+    const spec = Buffer.from("# spec\n");
+    const files = [
+      { path: "docs/spec.md", sha256: sha256Buffer(spec), contentBase64: spec.toString("base64") },
+    ];
+    const task = signedTask(privateKey, {
+      id: "job-common",
+      type: "common",
+      manifest: { "docs/spec.md": files[0]!.sha256 },
+      urls: ["https://hub.test/v1/sync/payloads/job-common"],
+    });
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes("/sync/tasks?") && (!init || init.method == null || init.method === "GET")) {
+        return new Response(JSON.stringify({ tasks: [task] }), { status: 200 });
+      }
+      if (url.includes("/payloads/")) return new Response(JSON.stringify({ files }), { status: 200 });
+      if (url.includes("/result")) return new Response("{}", { status: 200 });
+      return new Response("missing", { status: 404 });
+    };
+    const applied = await syncOnce({
+      hubUrl: "https://hub.test",
+      token: "st1.test",
+      workdir,
+      publicKey: publicPem,
+      fetchImpl,
+    });
+    expect(applied.applied).toBe(1);
+    const target = join(workdir, "project-common", "docs", "spec.md");
+    expect(await readFile(target, "utf8")).toBe("# spec\n");
+    await expect(writeFile(target, "nope")).rejects.toThrow();
   });
 });

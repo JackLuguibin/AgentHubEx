@@ -190,7 +190,16 @@ async function finishJob(
     })
     .where(eq(applyJobs.id, job.id));
 
-  if (input.status === "succeeded" && input.hash) {
+  if (input.status === "succeeded" && input.hash && job.kind === "common") {
+    await db
+      .update(workspaces)
+      .set({
+        commonSnapshotHash: input.hash,
+        commonSyncedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(workspaces.id, job.workspaceId));
+  } else if (input.status === "succeeded" && input.hash) {
     await db
       .update(workspaces)
       .set({
@@ -200,7 +209,7 @@ async function finishJob(
         updatedAt: now,
       })
       .where(eq(workspaces.id, job.workspaceId));
-  } else if (input.status === "failed" || input.status === "partial") {
+  } else if (job.kind !== "common" && (input.status === "failed" || input.status === "partial")) {
     await db
       .update(workspaces)
       .set({
@@ -213,7 +222,7 @@ async function finishJob(
       { jobId: job.id, workspaceId: job.workspaceId, status: input.status, error: input.error },
       "config apply needs attention",
     );
-  } else if (input.status === "running") {
+  } else if (job.kind !== "common" && input.status === "running") {
     await db
       .update(workspaces)
       .set({ status: "applying", statusReason: "waiting for agenthub-sync", updatedAt: now })
@@ -478,7 +487,8 @@ export async function listSyncTasks(db: Db, instanceId: string, env: ApplyEnv, w
       const exp = Math.floor(Date.now() / 1000) + 10 * 60;
       const sig = signPayloadQuery(row.id, exp, env.syncTokenSecret);
       const url = `${env.publicBaseUrl.replace(/\/$/, "")}/v1/sync/payloads/${row.id}?exp=${exp}&sig=${sig}`;
-      const body = { id: row.id, type: "apply" as const, manifest: diff.expected, urls: [url] };
+      const type = row.kind === "common" ? "common" : row.kind === "git_seed" ? "git_seed" : "apply";
+      const body = { id: row.id, type, manifest: diff.expected, urls: [url] };
       tasks.push({ ...body, signature: signSyncPayload(body, env.syncPrivateKey) });
     }
     return tasks;

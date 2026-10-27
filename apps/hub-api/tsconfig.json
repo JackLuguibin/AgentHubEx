@@ -9,6 +9,7 @@
   "exclude": ["src/tests/**/*"],
   "references": [
     { "path": "../../packages/auth" },
+    { "path": "../../packages/common-fs" },
     { "path": "../../packages/db" },
     { "path": "../../packages/domain" },
     { "path": "../../packages/config-bundle" },

@@ -8,5 +8,8 @@
   },
   "include": ["src/**/*"],
   "exclude": ["src/**/*.test.ts"],
-  "references": [{ "path": "../../packages/config-bundle" }]
+  "references": [
+    { "path": "../../packages/common-fs" },
+    { "path": "../../packages/config-bundle" }
+  ]
 }

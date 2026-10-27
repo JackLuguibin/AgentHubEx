@@ -9,6 +9,9 @@ import type {
   CreateInvitationReq,
   CreateProjectReq,
   CreateTenantReq,
+  CommonEntry,
+  CommonSettings,
+  CommonTree,
   DirectoryUser,
   EffectiveConfig,
   ImportSkillReq,
@@ -383,6 +386,88 @@ export function createFacadeClient(http: KyInstance) {
       return http.get(`v1/projects/${projectId}/apply-jobs`).json<Page<ApplyJob>>();
     },
 
+    async getCommonTree(projectId: string, prefix = "", depth = 1) {
+      const query = new URLSearchParams({ depth: String(depth) });
+      if (prefix) query.set("prefix", prefix);
+      return http.get(`v1/projects/${projectId}/common/tree?${query}`).json<CommonTree>();
+    },
+
+    async searchCommonFiles(projectId: string, q: string) {
+      return http
+        .get(`v1/projects/${projectId}/common/search?q=${encodeURIComponent(q)}`)
+        .json<Page<CommonEntry>>();
+    },
+
+    async putCommonSettings(
+      projectId: string,
+      input: Partial<Pick<CommonSettings, "quotaBytes" | "protectedPrefixes" | "syncPolicy">>,
+    ) {
+      return http.put(`v1/projects/${projectId}/common/settings`, { json: input }).json<CommonSettings>();
+    },
+
+    async createCommonDir(projectId: string, path: string) {
+      return http.post(`v1/projects/${projectId}/common/dirs`, { json: { path } }).json<CommonEntry>();
+    },
+
+    async uploadCommonFiles(projectId: string, files: File[], prefix: string) {
+      const form = new FormData();
+      if (prefix) form.set("prefix", prefix);
+      for (const file of files) form.append("files", file);
+      return http
+        .post(`v1/projects/${projectId}/common/upload`, {
+          body: form,
+          headers: { "idempotency-key": crypto.randomUUID() },
+        })
+        .json<{ entries: CommonEntry[] }>();
+    },
+
+    async putCommonText(projectId: string, path: string, content: string, mime = "text/plain") {
+      return http
+        .put(commonFileUrl(projectId, path), {
+          body: content,
+          headers: { "content-type": mime },
+        })
+        .json<CommonEntry>();
+    },
+
+    async readCommonFile(projectId: string, path: string) {
+      const res = await http.get(commonFileUrl(projectId, path));
+      const mime = res.headers.get("content-type") ?? "application/octet-stream";
+      const checksum = (res.headers.get("etag") ?? "").replaceAll('"', "");
+      const textual =
+        mime.startsWith("text/") ||
+        mime.includes("json") ||
+        mime.includes("yaml") ||
+        mime.includes("xml") ||
+        mime.includes("javascript");
+      if (textual) return { mime, checksum, text: await res.text(), blob: null as Blob | null };
+      return { mime, checksum, text: null as string | null, blob: await res.blob() };
+    },
+
+    async listCommonVersions(projectId: string, path: string) {
+      return http.get(`${commonFileUrl(projectId, path)}/versions`).json<{
+        versions: { version: number; size: number; checksum: string; createdBy: string; createdAt: string }[];
+      }>();
+    },
+
+    async restoreCommonVersion(projectId: string, path: string, version: number) {
+      return http
+        .post(`${commonFileUrl(projectId, path)}/restore`, { json: { version } })
+        .json<CommonEntry>();
+    },
+
+    async deleteCommonFile(projectId: string, path: string) {
+      await http.delete(`${commonFileUrl(projectId, path)}?recursive=1`);
+    },
+
+    async syncCommon(workspaceId: string) {
+      return http
+        .post(`v1/workspaces/${workspaceId}/sync-common`, {
+          headers: { "idempotency-key": crypto.randomUUID() },
+        })
+        .json<ApplyJob>();
+    },
+
     async saveOverlay(projectId: string, draft: Manifest) {
       return http.put(`v1/me/projects/${projectId}/overlay`, { json: draft }).json<Revision>();
     },
@@ -433,3 +518,8 @@ export function createFacadeClient(http: KyInstance) {
 }
 
 export type FacadeClient = ReturnType<typeof createFacadeClient>;
+
+function commonFileUrl(projectId: string, path: string) {
+  const encoded = path.split("/").map((part) => encodeURIComponent(part)).join("/");
+  return `v1/projects/${projectId}/common/files/${encoded}`;
+}

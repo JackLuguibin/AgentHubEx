@@ -15,6 +15,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agenthub/common-fs": "workspace:*",
     "@agenthub/domain": "workspace:*",
     "@agenthub/runtime-contract": "workspace:*",
     "zod": "^3.24.1"

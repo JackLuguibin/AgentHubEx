@@ -22,3 +22,4 @@ export {
   configRevisions,
   jobsOutbox,
 } from "./config.js";
+export { commonFileVersions, commonFiles, commonProtectedPrefixes } from "./common.js";

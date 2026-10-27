@@ -4,24 +4,25 @@ overview: 公共文件树+保护前缀+同步 project-common。
 todos:
   - id: pkg-common-fs
     content: packages/common-fs：路径安全、受保护前缀、S3 键规则
-    status: pending
+    status: completed
   - id: common-api
     content: 实现 /v1/projects/:id/common/files* 与 upload/sync-common API
-    status: pending
+    status: completed
   - id: files-ui
     content: 公共文件页：树/面包屑/上传/预览/保护前缀标记
-    status: pending
+    status: completed
   - id: sync-workspace
     content: 同步到工作区只读树 project-common/（managed 写卷或 sync）
-    status: pending
+    status: completed
   - id: rbac-prefixes
     content: viewer 只读；developer 写；保护前缀仅 owner
-    status: pending
+    status: completed
   - id: dod-common
     content: DoD：上传 docs/spec.md 同步后工作区可见；Agent 默认不可写公共区（A4）
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P1-05 项目公共空间
 
 > **索引 todo**：`phase1-common-fs` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

@@ -1,6 +1,7 @@
 import { createPublicKey, verify } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { materializeCommonTree } from "@agenthub/common-fs";
 import {
   applyManagedTree,
   canonicalJson,
@@ -75,31 +76,55 @@ export async function syncOnce(options: {
       if (!verifyTaskSignature(options.publicKey, signed, signature)) {
         throw new Error("任务签名无效");
       }
-      const files: { path: string; content: Buffer }[] = [];
-      const accepted: Record<string, string> = {};
+      const downloaded: { path: string; content: Buffer; sha256: string }[] = [];
       for (const url of task.urls) {
-        const downloaded = await fetchImpl(url, {
+        const response = await fetchImpl(url, {
           headers: { authorization: `Bearer ${options.token}` },
         });
-        if (!downloaded.ok) throw new Error(`download failed: ${downloaded.status}`);
-        const payload = (await downloaded.json()) as { files: PayloadFile[] };
+        if (!response.ok) throw new Error(`download failed: ${response.status}`);
+        const payload = (await response.json()) as { files: PayloadFile[] };
         for (const file of payload.files) {
           const bytes = Buffer.from(file.contentBase64, "base64");
           if (sha256Buffer(bytes) !== file.sha256) {
             throw new Error(`摘要不一致: ${file.path}`);
           }
-          let content = bytes;
-          if (file.path === "opencode.json") {
-            try {
-              const existing = await readFile(join(options.workdir, "opencode.json"), "utf8");
-              content = Buffer.from(mergeRenderedOpencode(existing, bytes.toString("utf8")), "utf8");
-            } catch {
-              content = bytes;
-            }
-          }
-          files.push({ path: file.path, content });
-          accepted[file.path] = file.sha256;
+          downloaded.push({ path: file.path, content: bytes, sha256: file.sha256 });
         }
+      }
+
+      if (task.type === "common") {
+        const written = await materializeCommonTree(
+          options.workdir,
+          downloaded.map((file) => ({ path: file.path, content: file.content })),
+        );
+        if (options.reloadUrl) {
+          await fetchImpl(options.reloadUrl, { method: "POST" }).catch(() => undefined);
+        }
+        await postResult(fetchImpl, hubUrl, options.token, task.id, {
+          status: "succeeded",
+          manifest: written.manifest,
+          added: written.added,
+          removed: written.removed,
+          changed: written.changed,
+        });
+        applied += 1;
+        continue;
+      }
+
+      const files: { path: string; content: Buffer }[] = [];
+      const accepted: Record<string, string> = {};
+      for (const file of downloaded) {
+        let content = file.content;
+        if (file.path === "opencode.json") {
+          try {
+            const existing = await readFile(join(options.workdir, "opencode.json"), "utf8");
+            content = Buffer.from(mergeRenderedOpencode(existing, file.content.toString("utf8")), "utf8");
+          } catch {
+            content = file.content;
+          }
+        }
+        files.push({ path: file.path, content });
+        accepted[file.path] = file.sha256;
       }
       const written = await applyManagedTree(options.workdir, files);
       if (options.reloadUrl) {

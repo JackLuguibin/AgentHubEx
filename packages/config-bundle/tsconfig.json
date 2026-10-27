@@ -9,6 +9,7 @@
   "include": ["src/**/*"],
   "exclude": ["src/**/*.test.ts"],
   "references": [
+    { "path": "../common-fs" },
     { "path": "../domain" },
     { "path": "../runtime-contract" }
   ]

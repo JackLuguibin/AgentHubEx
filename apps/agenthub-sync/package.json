@@ -16,6 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agenthub/common-fs": "workspace:*",
     "@agenthub/config-bundle": "workspace:*"
   },
   "devDependencies": {

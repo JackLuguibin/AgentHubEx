@@ -9,6 +9,7 @@ import { optionalAuth } from "./middleware/auth.js";
 import { requestIdMiddleware } from "./middleware/request-id.js";
 import { authRoutes, meRoutes } from "./routes/auth.js";
 import { credentialRoutes } from "./routes/credentials.js";
+import { commonRoutes } from "./routes/common.js";
 import { configRoutes } from "./routes/config.js";
 import { instanceRoutes } from "./routes/instances.js";
 import { agentProxyRoutes } from "./routes/agent-proxy.js";
@@ -110,6 +111,7 @@ export function createApp(options: CreateAppOptions = {}) {
   v1.route("/", issueRoutes());
   v1.route("/", sessionRoutes());
   v1.route("/", configRoutes());
+  v1.route("/", commonRoutes());
 
   // Serve OpenAPI outside auth-gated routers mounted at "/"
   const openApiDoc = v1.getOpenAPI31Document({

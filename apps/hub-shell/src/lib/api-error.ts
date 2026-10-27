@@ -29,6 +29,12 @@ export async function getApiErrorMessage(
       const message = body.error?.message;
       if (code === "TENANT_SUSPENDED") return message || "租户已停用";
       if (code === "PROJECT_ARCHIVED") return message || "项目已归档";
+      if (code === "PROTECTED_PATH") return message || "受保护前缀仅项目 owner 可修改";
+      if (code === "QUOTA_EXCEEDED") return message || "公共空间配额不足";
+      if (code === "INVALID_PATH") return message || "路径不合法";
+      if (code === "PRECONDITION_FAILED" || response.status === 412) {
+        return message || "文件已被他人修改，请重新打开后再保存";
+      }
       if (code === "INSTANCE_IN_USE") return "实例仍有工作区在使用，无法删除";
       if (code === "BLOCKED_UPSTREAM_PATH") return "该路径不允许经 Hub 访问";
       if (message && /Shared isolation is not allowed/i.test(message)) {
