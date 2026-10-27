@@ -10,6 +10,7 @@ import {
   createUserCredential,
   deleteProjectCredential,
   deleteUserCredential,
+  listCredentialOptions,
   listProjectCredentials,
   listUserCredentials,
   updateProjectCredential,
@@ -65,6 +66,18 @@ export function meCredentialRoutes() {
 export function credentialRoutes() {
   const app = new OpenAPIHono<AppEnv>();
   app.use("*", requireAuth);
+
+  app.get("/projects/:p/credentials/options", async (c) => {
+    const principal = c.get("principal")!;
+    return c.json(
+      await listCredentialOptions(
+        c.get("db"),
+        c.req.param("p"),
+        principal.userId,
+        principal.isPlatformAdmin,
+      ),
+    );
+  });
 
   app.get("/projects/:p/credentials", async (c) => {
     const principal = c.get("principal")!;

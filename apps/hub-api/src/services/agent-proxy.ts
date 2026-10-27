@@ -124,29 +124,53 @@ export async function proxyWorkspaceAgent(
   });
 }
 
+const MOCK_FILES: Record<string, string> = {
+  "/README.md": "# 个人工作区\n这是只读预览示例。\n",
+  "/src/main.ts": "export const ready = true;\n",
+  "/project-common/docs/architecture.md": "# 公共资料\nproject-common 只读。\n",
+};
+
+const MOCK_DIRS: Record<string, Array<{ name: string; type: "file" | "directory" }>> = {
+  "/": [
+    { name: "README.md", type: "file" },
+    { name: "src", type: "directory" },
+    { name: "project-common", type: "directory" },
+  ],
+  "/src": [{ name: "main.ts", type: "file" }],
+  "/project-common": [{ name: "docs", type: "directory" }],
+  "/project-common/docs": [{ name: "architecture.md", type: "file" }],
+};
+
+function normalizeMockPath(filePath: string) {
+  if (!filePath || filePath === "/") return "/";
+  const withSlash = filePath.startsWith("/") ? filePath : `/${filePath}`;
+  return withSlash.endsWith("/") ? withSlash.slice(0, -1) : withSlash;
+}
+
 function mockAgentResponse(method: string, path: string, search: string): Response {
   const bare = path.split("?")[0] ?? path;
   if (method === "GET" && (bare === "/file" || bare.startsWith("/file/"))) {
     const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
-    const filePath = params.get("path") ?? "/";
-    return Response.json({
-      path: filePath,
-      type: filePath.endsWith("/") || filePath === "/" ? "directory" : "file",
-      entries:
-        filePath === "/" || filePath.endsWith("/")
-          ? [
-              { name: "README.md", type: "file" },
-              { name: "src", type: "directory" },
-            ]
-          : undefined,
-      content:
-        filePath.endsWith(".md") || filePath.endsWith(".ts")
-          ? `# mock file\npath=${filePath}\n`
-          : undefined,
-    });
+    const filePath = normalizeMockPath(params.get("path") ?? "/");
+    if (MOCK_DIRS[filePath]) {
+      return Response.json(MOCK_DIRS[filePath]);
+    }
+    if (filePath in MOCK_FILES) {
+      return Response.json({
+        path: filePath,
+        type: "file",
+        content: MOCK_FILES[filePath],
+      });
+    }
+    return Response.json({ path: filePath, type: "file", content: "" });
   }
   if (method === "GET" && (bare === "/find" || bare.startsWith("/find/"))) {
-    return Response.json({ matches: [] });
+    const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+    const q = (params.get("q") ?? params.get("pattern") ?? "").toLowerCase();
+    const matches = Object.keys(MOCK_FILES)
+      .filter((item) => !q || item.toLowerCase().includes(q))
+      .map((item) => ({ path: item, name: item.split("/").pop(), type: "file" as const }));
+    return Response.json({ matches });
   }
   if (method === "GET" && (bare === "/agent" || bare === "/mcp" || bare === "/config")) {
     return Response.json({ ok: true, mock: true });

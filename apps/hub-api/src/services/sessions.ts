@@ -10,12 +10,13 @@ import {
   userCredentials,
   workspaces,
 } from "@agenthub/db";
-import { can } from "@agenthub/auth";
+import { can, effectiveProjectRole, type ProjectRole } from "@agenthub/auth";
 import type { AgentSession, CreateSessionReqSchema } from "@agenthub/domain";
 import { opencodeAdapter } from "@agenthub/adapter-opencode";
 import { DEFAULT_CAPABILITIES, type InstanceCtx } from "@agenthub/runtime-contract";
 import type { z } from "zod";
 import { AppError, conflict, forbidden, notFound } from "../errors.js";
+import { recordAudit } from "../lib/audit.js";
 import { decryptSecret, encryptSecret } from "../lib/crypto.js";
 import { newId } from "../lib/id.js";
 import { toIso } from "../lib/time.js";
@@ -55,11 +56,21 @@ async function requireSessionAccess(
   return { row, access };
 }
 
+function projectCredAllowed(
+  allowedRoles: string[] | null,
+  role: ProjectRole | null,
+  canUseProject: boolean,
+) {
+  return Boolean(canUseProject && role && (allowedRoles ?? []).includes(role));
+}
+
 async function resolveCredential(
   db: Db,
   projectId: string,
   userId: string,
   policy: string,
+  role: ProjectRole | null,
+  canUseProject: boolean,
   input: CreateSessionInput,
 ): Promise<CredRef> {
   if (input.credentialId && input.credentialSource) {
@@ -103,6 +114,11 @@ async function resolveCredential(
         details: { code: "CREDENTIAL_POLICY_VIOLATION" },
       });
     }
+    if (!projectCredAllowed(pc.allowedRoles, role, canUseProject)) {
+      throw new AppError(409, "CONFLICT", "Project credential is not allowed for this role", {
+        details: { code: "CREDENTIAL_POLICY_VIOLATION" },
+      });
+    }
     return {
       source: "project",
       id: pc.id,
@@ -124,7 +140,7 @@ async function resolveCredential(
         ),
       )
       .limit(1);
-    if (pc) {
+    if (pc && projectCredAllowed(pc.allowedRoles, role, canUseProject)) {
       return {
         source: "project",
         id: pc.id,
@@ -506,11 +522,17 @@ export async function createSession(
     throw conflict("Only opencode runtime is supported in P0");
   }
 
+  const role = effectiveProjectRole(access.projectRole, access.tenantRole);
+  const canUseProject = can(access.projectRole, access.tenantRole, "credential.project.use", {
+    isPlatformAdmin,
+  });
   const cred = await resolveCredential(
     db,
     projectId,
     userId,
     access.project.credentialPolicy,
+    role,
+    canUseProject,
     input,
   );
 
@@ -586,6 +608,98 @@ export async function getSession(
 ) {
   const { row } = await requireSessionAccess(db, sessionId, userId, isPlatformAdmin);
   return mapSession(db, row);
+}
+
+export async function patchSession(
+  db: Db,
+  sessionId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+  input: { title: string },
+) {
+  const { row } = await requireSessionAccess(db, sessionId, userId, isPlatformAdmin);
+  const [updated] = await db
+    .update(agentSessions)
+    .set({ title: input.title, updatedAt: new Date() })
+    .where(eq(agentSessions.id, row.id))
+    .returning();
+  return mapSession(db, updated!);
+}
+
+export async function archiveSession(
+  db: Db,
+  sessionId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+) {
+  const { row } = await requireSessionAccess(db, sessionId, userId, isPlatformAdmin);
+  if (row.status === "busy") {
+    throw conflict("会话忙碌中，请先停止后再归档");
+  }
+  await db
+    .update(agentSessions)
+    .set({ status: "archived", updatedAt: new Date() })
+    .where(eq(agentSessions.id, row.id));
+}
+
+export async function abortSession(
+  db: Db,
+  sessionId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+  platformDek: string,
+  runtimeMock: boolean,
+) {
+  const loaded = await loadSessionRuntime(
+    db,
+    sessionId,
+    userId,
+    isPlatformAdmin,
+    platformDek,
+    runtimeMock,
+  );
+  await opencodeAdapter.abort(loaded.ctx, loaded.runtimeSessionRef);
+  const [updated] = await db
+    .update(agentSessions)
+    .set({ status: "aborted", statusReason: "aborted", updatedAt: new Date() })
+    .where(eq(agentSessions.id, sessionId))
+    .returning();
+  return mapSession(db, updated!);
+}
+
+export async function respondSessionPermission(
+  db: Db,
+  sessionId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+  platformDek: string,
+  runtimeMock: boolean,
+  reqId: string,
+  decision: "allow" | "deny" | "always",
+) {
+  const loaded = await loadSessionRuntime(
+    db,
+    sessionId,
+    userId,
+    isPlatformAdmin,
+    platformDek,
+    runtimeMock,
+  );
+  await opencodeAdapter.respondPermission(
+    loaded.ctx,
+    loaded.runtimeSessionRef,
+    reqId,
+    decision,
+  );
+  recordAudit({
+    action: "permission.decision",
+    actorId: userId,
+    tenantId: loaded.session.tenantId,
+    projectId: loaded.session.projectId,
+    targetType: "session",
+    targetId: sessionId,
+    meta: { reqId, decision },
+  });
 }
 
 export async function sendMessage(

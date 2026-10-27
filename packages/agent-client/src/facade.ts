@@ -13,6 +13,7 @@ import type {
   CommonSettings,
   CommonTree,
   DirectoryUser,
+  CredentialOptionsRes,
   EffectiveConfig,
   ImportSkillReq,
   Invitation,
@@ -286,6 +287,12 @@ export function createFacadeClient(http: KyInstance) {
       return http.get(`v1/workspaces/${workspaceId}/agent/${path}`).json<T>();
     },
 
+    async listCredentialOptions(projectId: string) {
+      return http
+        .get(`v1/projects/${projectId}/credentials/options`)
+        .json<CredentialOptionsRes>();
+    },
+
     async listSessions(projectId: string) {
       return http
         .get(`v1/projects/${projectId}/sessions`)
@@ -300,6 +307,28 @@ export function createFacadeClient(http: KyInstance) {
 
     async getSession(sessionId: string) {
       return http.get(`v1/sessions/${sessionId}`).json<AgentSession>();
+    },
+
+    async patchSession(sessionId: string, input: { title: string }) {
+      return http.patch(`v1/sessions/${sessionId}`, { json: input }).json<AgentSession>();
+    },
+
+    async archiveSession(sessionId: string) {
+      await http.delete(`v1/sessions/${sessionId}`);
+    },
+
+    async abortSession(sessionId: string) {
+      return http.post(`v1/sessions/${sessionId}/abort`).json<AgentSession>();
+    },
+
+    async respondPermission(
+      sessionId: string,
+      reqId: string,
+      decision: "allow" | "deny" | "always",
+    ) {
+      await http.post(`v1/sessions/${sessionId}/permissions/${encodeURIComponent(reqId)}`, {
+        json: { decision },
+      });
     },
 
     async sendMessage(sessionId: string, input: SendMessageInput) {
@@ -479,12 +508,13 @@ export function createFacadeClient(http: KyInstance) {
         onEvent: (envelope: Envelope) => void;
         onError?: (err: unknown) => void;
         onOpen?: () => void;
+        onStale?: () => void;
         signal?: AbortSignal;
         lastEventId?: string;
         baseUrl: string;
       },
     ) {
-      const url = `${handlers.baseUrl.replace(/\/$/, "")}/v1/sessions/${sessionId}/events`;
+      const url = sessionEventsUrl(handlers.baseUrl, sessionId);
       return fetchEventSource(url, {
         method: "GET",
         credentials: "include",
@@ -496,6 +526,10 @@ export function createFacadeClient(http: KyInstance) {
           ...(handlers.lastEventId ? { "Last-Event-ID": handlers.lastEventId } : {}),
         },
         async onopen(res) {
+          if (res.status === 409) {
+            handlers.onStale?.();
+            throw new Error("SSE_CURSOR_STALE");
+          }
           if (!res.ok) throw new Error(`SSE open failed: ${res.status}`);
           handlers.onOpen?.();
         },
@@ -503,6 +537,12 @@ export function createFacadeClient(http: KyInstance) {
           if (!msg.data || msg.data.startsWith(":")) return;
           try {
             const envelope = JSON.parse(msg.data) as Envelope;
+            if (
+              envelope.type === "error" &&
+              (envelope.data as { code?: string }).code === "SSE_CURSOR_STALE"
+            ) {
+              handlers.onStale?.();
+            }
             handlers.onEvent(envelope);
           } catch (err) {
             handlers.onError?.(err);
@@ -518,6 +558,11 @@ export function createFacadeClient(http: KyInstance) {
 }
 
 export type FacadeClient = ReturnType<typeof createFacadeClient>;
+
+/** Session event stream is Facade-only. Never `/agent/event`. */
+export function sessionEventsUrl(baseUrl: string, sessionId: string) {
+  return `${baseUrl.replace(/\/$/, "")}/v1/sessions/${sessionId}/events`;
+}
 
 function commonFileUrl(projectId: string, path: string) {
   const encoded = path.split("/").map((part) => encodeURIComponent(part)).join("/");

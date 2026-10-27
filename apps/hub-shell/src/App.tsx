@@ -52,6 +52,7 @@ export function App() {
           <Route path="p/:projectId/instances" element={<InstancesPage />} />
           <Route path="p/:projectId/config" element={<ConfigPage />} />
           <Route path="p/:projectId/files" element={<FilesPage />} />
+          <Route path="p/:projectId/files/*" element={<FilesPage />} />
           <Route path="p/:projectId/members" element={<MembersPage />} />
           <Route path="p/:projectId/credentials" element={<CredentialsPage />} />
           <Route path="p/:projectId/nodes" element={<NodesPage />} />

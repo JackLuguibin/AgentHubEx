@@ -14,6 +14,7 @@ import { withIdempotency } from "../lib/idempotency.js";
 import { issueSyncToken, syncPublicKey } from "../lib/sync-crypto.js";
 import { unzipStored } from "../lib/zip.js";
 import { requireAuth } from "../middleware/auth.js";
+import { recordAudit } from "../lib/audit.js";
 import { applyProjectConfig, listApplyJobs } from "../services/apply-engine.js";
 import {
   createProjectBundle,
@@ -225,13 +226,23 @@ export function configRoutes() {
     const body = ApplyConfigReqSchema.parse(await c.req.json().catch(() => ({})));
     const key = idempotencyKey(c);
     const projectId = c.req.param("p");
-    const result = await withIdempotency(c.get("redis"), `idem:apply:${projectId}:${key}`, async () => ({
-      status: 200,
-      body: await applyProjectConfig(c.get("db"), projectId, actor(c), applyEnv(c.get("env")), {
+    const principal = c.get("principal")!;
+    const result = await withIdempotency(c.get("redis"), `idem:apply:${projectId}:${key}`, async () => {
+      const applied = await applyProjectConfig(c.get("db"), projectId, actor(c), applyEnv(c.get("env")), {
         workspaceIds: body.workspaceIds,
         trigger: "manual",
-      }),
-    }));
+      });
+      recordAudit({
+        action: "apply.run",
+        actorId: principal.userId,
+        tenantId: principal.tenantId,
+        projectId,
+        targetType: "project",
+        targetId: projectId,
+        meta: { kind: "config", jobCount: applied.jobs.length },
+      });
+      return { status: 200, body: applied };
+    });
     return c.json(result.body, result.status as 200);
   });
 

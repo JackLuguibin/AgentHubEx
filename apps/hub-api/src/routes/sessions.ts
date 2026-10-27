@@ -14,14 +14,20 @@ import { opencodeAdapter } from "@agenthub/adapter-opencode";
 import type { AppEnv } from "../context.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
+  abortSession,
+  archiveSession,
   createSession,
   getSession,
   getWorkspaceMe,
   listMySessions,
   loadSessionRuntime,
+  patchSession,
+  respondSessionPermission,
   sendMessage,
   syncWorkspaceConfig,
 } from "../services/sessions.js";
+import { agentSessions } from "@agenthub/db";
+import { eq } from "drizzle-orm";
 
 function openApiApp() {
   return new OpenAPIHono<AppEnv>({
@@ -209,6 +215,95 @@ export function sessionRoutes() {
 
   app.openapi(
     createRoute({
+      method: "patch",
+      path: "/sessions/{sessionId}",
+      tags: ["sessions"],
+      request: {
+        params: z.object({ sessionId: UuidParam }),
+        body: {
+          content: {
+            "application/json": {
+              schema: z.object({ title: z.string().min(1).max(200) }),
+            },
+          },
+          required: true,
+        },
+      },
+      responses: {
+        200: {
+          content: { "application/json": { schema: AgentSessionSchema } },
+          description: "Updated",
+        },
+      },
+    }),
+    async (c) => {
+      const { sessionId } = c.req.valid("param");
+      const body = c.req.valid("json");
+      const p = c.get("principal")!;
+      const session = await patchSession(
+        c.get("db"),
+        sessionId,
+        p.userId,
+        p.isPlatformAdmin,
+        body,
+      );
+      return c.json(session, 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "delete",
+      path: "/sessions/{sessionId}",
+      tags: ["sessions"],
+      request: { params: z.object({ sessionId: UuidParam }) },
+      responses: {
+        204: { description: "Archived" },
+      },
+    }),
+    async (c) => {
+      const { sessionId } = c.req.valid("param");
+      const p = c.get("principal")!;
+      await archiveSession(c.get("db"), sessionId, p.userId, p.isPlatformAdmin);
+      return c.body(null, 204);
+    },
+  );
+
+  app.post("/sessions/:sessionId/abort", async (c) => {
+    const p = c.get("principal")!;
+    const env = c.get("env");
+    const session = await abortSession(
+      c.get("db"),
+      c.req.param("sessionId"),
+      p.userId,
+      p.isPlatformAdmin,
+      env.PLATFORM_DEK,
+      env.RUNTIME_MOCK,
+    );
+    return c.json(session, 202);
+  });
+
+  app.post("/sessions/:sessionId/permissions/:reqId", async (c) => {
+    const body = z
+      .object({ decision: z.enum(["allow", "deny", "always"]) })
+      .parse(await c.req.json());
+    const p = c.get("principal")!;
+    const env = c.get("env");
+    await respondSessionPermission(
+      c.get("db"),
+      c.req.param("sessionId"),
+      p.userId,
+      p.isPlatformAdmin,
+      env.PLATFORM_DEK,
+      env.RUNTIME_MOCK,
+      c.req.param("reqId"),
+      body.decision,
+    );
+    return c.body(null, 204);
+  });
+
+  app.openapi(
+    createRoute({
       method: "post",
       path: "/sessions/{sessionId}/messages",
       tags: ["sessions"],
@@ -356,6 +451,23 @@ export function sessionRoutes() {
               data,
             );
             write(`id: ${seq}\nevent: ${envelope.type}\ndata: ${data}\n\n`);
+            if (envelope.type === "session.status") {
+              const status = (envelope.data as { status?: string }).status;
+              const mapped =
+                status === "busy" || status === "idle"
+                  ? status
+                  : status === "error"
+                    ? "failed"
+                    : null;
+              if (mapped) {
+                void c
+                  .get("db")
+                  .update(agentSessions)
+                  .set({ status: mapped, updatedAt: new Date() })
+                  .where(eq(agentSessions.id, session.id))
+                  .catch(() => undefined);
+              }
+            }
           }
         } catch (err) {
           if (!abort.signal.aborted) {

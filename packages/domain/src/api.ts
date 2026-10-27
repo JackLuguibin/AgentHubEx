@@ -468,6 +468,25 @@ export const SessionStatusSchema = z.enum([
 
 export const CredentialSourceSchema = z.enum(["user", "project"]);
 
+export const CredentialOptionSchema = z.object({
+  source: CredentialSourceSchema,
+  id: UuidSchema,
+  label: z.string(),
+  provider: ProviderSchema,
+  isDefault: z.boolean(),
+});
+
+export const CredentialOptionsResSchema = z.object({
+  policy: CredentialPolicySchema,
+  defaultChoice: z
+    .object({
+      source: CredentialSourceSchema,
+      id: UuidSchema,
+    })
+    .nullable(),
+  options: z.array(CredentialOptionSchema),
+});
+
 export const AgentSessionSchema = z.object({
   id: UuidSchema,
   projectId: UuidSchema,
@@ -612,3 +631,4 @@ export type ProjectRuntimeBinding = z.infer<typeof ProjectRuntimeBindingSchema>;
 export type PutProjectBindingsReq = z.infer<typeof PutProjectBindingsReqSchema>;
 export type AgentSession = z.infer<typeof AgentSessionSchema>;
 export type Workspace = z.infer<typeof WorkspaceSchema>;
+export type CredentialOptionsRes = z.infer<typeof CredentialOptionsResSchema>;

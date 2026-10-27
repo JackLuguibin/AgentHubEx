@@ -7,6 +7,7 @@ import {
 } from "@agenthub/domain";
 import type { AppEnv } from "../context.js";
 import { AppError } from "../errors.js";
+import { recordAudit } from "../lib/audit.js";
 import { withIdempotency } from "../lib/idempotency.js";
 import { createObjectStore } from "../lib/object-store.js";
 import { requireAuth } from "../middleware/auth.js";
@@ -172,15 +173,25 @@ export function commonRoutes() {
 
   app.post("/workspaces/:w/sync-common", async (c) => {
     const key = idempotencyKey(c);
-    const result = await withIdempotency(c.get("redis"), `common:sync:${c.req.param("w")}:${key}`, async () => {
+    const workspaceId = c.req.param("w");
+    const principal = c.get("principal")!;
+    const result = await withIdempotency(c.get("redis"), `common:sync:${workspaceId}:${key}`, async () => {
       const body = await syncWorkspaceCommon(
         c.get("db"),
         storeOf(c.get("env")),
-        c.req.param("w"),
+        workspaceId,
         actor(c),
         { applyRoot: c.get("env").APPLY_ROOT },
         "manual",
       );
+      recordAudit({
+        action: "apply.run",
+        actorId: principal.userId,
+        tenantId: principal.tenantId,
+        targetType: "workspace",
+        targetId: workspaceId,
+        meta: { kind: "sync_common", jobId: body.id, status: body.status },
+      });
       return { status: 200, body };
     });
     return c.json(result.body, result.status as 200);

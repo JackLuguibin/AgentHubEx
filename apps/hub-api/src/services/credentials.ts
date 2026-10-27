@@ -5,9 +5,10 @@ import {
   projectCredentials,
   userCredentials,
 } from "@agenthub/db";
-import { can } from "@agenthub/auth";
+import { can, effectiveProjectRole } from "@agenthub/auth";
 import type { ProjectCredential, UserCredential } from "@agenthub/domain";
 import { conflict, forbidden, notFound } from "../errors.js";
+import { buildCredentialOptions } from "../lib/credential-options.js";
 import { encryptSecret, last4OfSecret } from "../lib/crypto.js";
 import { newId } from "../lib/id.js";
 import { toIso } from "../lib/time.js";
@@ -41,6 +42,52 @@ function mapProjectCred(row: typeof projectCredentials.$inferSelect): ProjectCre
     allowedRoles: (row.allowedRoles ?? []) as ProjectCredential["allowedRoles"],
     isDefault: row.isDefault,
   };
+}
+
+export async function listCredentialOptions(
+  db: Db,
+  projectId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+) {
+  const access = await resolveProjectAccess(db, projectId, userId, isPlatformAdmin);
+  if (!can(access.projectRole, access.tenantRole, "session.create", { isPlatformAdmin })) {
+    throw forbidden();
+  }
+  const role = effectiveProjectRole(access.projectRole, access.tenantRole);
+  const canUseProject = can(
+    access.projectRole,
+    access.tenantRole,
+    "credential.project.use",
+    { isPlatformAdmin },
+  );
+  const userRows = await db
+    .select()
+    .from(userCredentials)
+    .where(eq(userCredentials.userId, userId));
+  const projectRows = await db
+    .select()
+    .from(projectCredentials)
+    .where(eq(projectCredentials.projectId, projectId));
+  return buildCredentialOptions({
+    policy: access.project.credentialPolicy as "user_or_project" | "project_only" | "user_only",
+    role,
+    canUseProject,
+    userCredentials: userRows.map((row) => ({
+      id: row.id,
+      label: row.label,
+      provider: row.provider as UserCredential["provider"],
+      status: row.status,
+    })),
+    projectCredentials: projectRows.map((row) => ({
+      id: row.id,
+      label: row.label,
+      provider: row.provider as UserCredential["provider"],
+      status: row.status,
+      isDefault: row.isDefault,
+      allowedRoles: row.allowedRoles ?? [],
+    })),
+  });
 }
 
 export async function listUserCredentials(db: Db, userId: string) {

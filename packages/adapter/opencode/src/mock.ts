@@ -47,6 +47,26 @@ async function streamReply(sessionRef: string, userText: string) {
   emit(state, sessionRef, "session.status", { status: "busy" });
   emit(state, sessionRef, "message.start", { messageId, role: "assistant" });
 
+  const toolId = randomUUID();
+  emit(state, sessionRef, "tool_call", {
+    toolId,
+    name: "read",
+    input: { path: "README.md" },
+  });
+  emit(state, sessionRef, "tool_result", {
+    toolId,
+    output: "mock: README.md",
+    isError: false,
+  });
+  if (/权限|permission/i.test(userText)) {
+    emit(state, sessionRef, "permission_request", {
+      reqId: randomUUID(),
+      tool: "bash",
+      input: { command: "ls" },
+      options: ["allow", "deny"],
+    });
+  }
+
   const reply =
     userText.trim().length === 0
       ? "（空消息）这是 Hub mock runtime 的占位回复。"
@@ -78,7 +98,15 @@ export const mockOpencodeAdapter: RuntimeAdapter = {
   },
 
   async capabilities() {
-    return { ...DEFAULT_CAPABILITIES, streaming: true, abort: true };
+    return {
+      ...DEFAULT_CAPABILITIES,
+      files: true,
+      find: true,
+      permissions: true,
+      streaming: true,
+      abort: true,
+      pty: false,
+    };
   },
 
   async createSession(_i, input) {

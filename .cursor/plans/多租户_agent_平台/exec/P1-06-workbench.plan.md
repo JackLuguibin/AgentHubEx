@@ -4,27 +4,28 @@ overview: 三组导航 Shell + React Workbench（流式/权限/文件树）接 F
 todos:
   - id: nav-three-groups
     content: 侧栏三组导航全页路由接通（工作空间+项目配置）
-    status: pending
+    status: completed
   - id: wb-session-creds
     content: Workbench：选凭据开会话、本人会话 CRUD、busy 禁切凭据
-    status: pending
+    status: completed
   - id: wb-stream-perm
     content: 流式 assistant/tool 事件 + 权限允许/拒绝弹窗
-    status: pending
+    status: completed
   - id: wb-files-preview
     content: 只读文件树+文本预览（个人区 vs project-common）
-    status: pending
+    status: completed
   - id: wb-sync-actions
     content: 工作台内同步配置/公共资料入口（写审计）
-    status: pending
+    status: completed
   - id: capabilities-degrade
     content: 按 Workspace.capabilities 隐藏不可用入口
-    status: pending
+    status: completed
   - id: dod-workbench
     content: DoD：A10 阻断路径；会话 SSE 仅 Facade；无裸节点（A12）
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P1-06 Hub Shell 与 Workbench P1
 
 > **索引 todo**：`phase1-hub-shell-workbench` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)
