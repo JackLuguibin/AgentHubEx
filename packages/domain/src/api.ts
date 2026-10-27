@@ -408,6 +408,25 @@ export const PutProjectBindingsReqSchema = z.object({
   ),
 });
 
+export const SessionStatusSchema = z.enum([
+  "creating",
+  "active",
+  "busy",
+  "idle",
+  "aborted",
+  "archived",
+  "failed",
+]);
+
+export const LinkedSessionSchema = z.object({
+  id: UuidSchema,
+  title: z.string(),
+  ownerUserId: UuidSchema,
+  ownerName: z.string(),
+  status: SessionStatusSchema,
+  canOpen: z.boolean(),
+});
+
 export const IssueSchema = z.object({
   id: UuidSchema,
   key: z.string(),
@@ -425,6 +444,7 @@ export const IssueSchema = z.object({
   labels: z.array(z.string()),
   rank: z.string(),
   resolutionNote: z.string().nullable(),
+  linkedSessions: z.array(LinkedSessionSchema),
   createdBy: UuidSchema,
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
@@ -448,6 +468,23 @@ export const UpdateIssueReqSchema = z.object({
   assigneeUserId: UuidSchema.nullable().optional(),
   status: IssueStatusSchema.optional(),
   resolutionNote: z.string().optional(),
+  position: z
+    .object({
+      beforeId: UuidSchema.optional(),
+      afterId: UuidSchema.optional(),
+    })
+    .optional(),
+});
+
+export const BoardColumnSchema = z.object({
+  status: IssueStatusSchema,
+  total: z.number().int(),
+  items: z.array(IssueSchema),
+  nextCursor: z.string().nullable(),
+});
+
+export const BoardSchema = z.object({
+  columns: z.array(BoardColumnSchema),
 });
 
 export const PageSchema = <T extends z.ZodTypeAny>(item: T) =>
@@ -455,16 +492,6 @@ export const PageSchema = <T extends z.ZodTypeAny>(item: T) =>
     items: z.array(item),
     nextCursor: z.string().nullable(),
   });
-
-export const SessionStatusSchema = z.enum([
-  "creating",
-  "active",
-  "busy",
-  "idle",
-  "aborted",
-  "archived",
-  "failed",
-]);
 
 export const CredentialSourceSchema = z.enum(["user", "project"]);
 
@@ -620,6 +647,11 @@ export type UserBindings = z.infer<typeof UserBindingsSchema>;
 export type DirectoryUser = z.infer<typeof DirectoryUserSchema>;
 export type PutUserBindingsReq = z.infer<typeof PutUserBindingsReqSchema>;
 export type Issue = z.infer<typeof IssueSchema>;
+export type IssueStatus = z.infer<typeof IssueStatusSchema>;
+export type CreateIssueReq = z.infer<typeof CreateIssueReqSchema>;
+export type UpdateIssueReq = z.infer<typeof UpdateIssueReqSchema>;
+export type Board = z.infer<typeof BoardSchema>;
+export type LinkedSession = z.infer<typeof LinkedSessionSchema>;
 export type UserCredential = z.infer<typeof UserCredentialSchema>;
 export type ProjectCredential = z.infer<typeof ProjectCredentialSchema>;
 export type RuntimeInstance = z.infer<typeof RuntimeInstanceSchema>;

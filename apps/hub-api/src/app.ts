@@ -63,6 +63,7 @@ export function createApp(options: CreateAppOptions = {}) {
       allowHeaders: [
         "Authorization",
         "Content-Type",
+        "If-Match",
         "Last-Event-ID",
         "X-Request-Id",
       ],

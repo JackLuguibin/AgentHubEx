@@ -17,6 +17,11 @@ import type {
   EffectiveConfig,
   ImportSkillReq,
   Invitation,
+  Issue,
+  IssueStatus,
+  Board,
+  CreateIssueReq,
+  UpdateIssueReq,
   Manifest,
   Me,
   PatchInstanceReq,
@@ -45,10 +50,19 @@ export type Page<T> = { items: T[]; nextCursor: string | null };
 
 export type CreateSessionInput = {
   title?: string;
+  runtimeType?: "opencode" | "claude";
   credentialSource?: "user" | "project";
   credentialId?: string;
   issueId?: string;
   initialPrompt?: string;
+};
+
+export type IssueListQuery = {
+  status?: IssueStatus;
+  assignee?: string;
+  label?: string;
+  priority?: "P0" | "P1" | "P2" | "P3";
+  q?: string;
 };
 
 export type SendMessageInput = {
@@ -291,6 +305,69 @@ export function createFacadeClient(http: KyInstance) {
       return http
         .get(`v1/projects/${projectId}/credentials/options`)
         .json<CredentialOptionsRes>();
+    },
+
+    async getBoard(projectId: string, query: IssueListQuery & { includeCancelled?: boolean } = {}) {
+      const search = issueSearchParams(query);
+      if (query.includeCancelled) search.set("includeCancelled", "true");
+      const qs = search.toString();
+      return http.get(`v1/projects/${projectId}/board${qs ? `?${qs}` : ""}`).json<Board>();
+    },
+
+    async listIssues(projectId: string, query: IssueListQuery = {}) {
+      const qs = issueSearchParams(query).toString();
+      return http
+        .get(`v1/projects/${projectId}/issues${qs ? `?${qs}` : ""}`)
+        .json<Page<Issue>>();
+    },
+
+    async createIssue(projectId: string, input: CreateIssueReq) {
+      return http.post(`v1/projects/${projectId}/issues`, { json: input }).json<Issue>();
+    },
+
+    async getIssue(idOrKey: string) {
+      return http.get(`v1/issues/${encodeURIComponent(idOrKey)}`).json<Issue>();
+    },
+
+    async updateIssue(idOrKey: string, input: UpdateIssueReq, etag?: string) {
+      return http
+        .patch(`v1/issues/${encodeURIComponent(idOrKey)}`, {
+          json: input,
+          headers: etag ? { "if-match": etag } : undefined,
+        })
+        .json<Issue>();
+    },
+
+    subscribeBoardEvents(
+      projectId: string,
+      handlers: {
+        getAccessToken: () => string | null;
+        onEvent: (event: { event: string }) => void;
+        onError?: (err: unknown) => void;
+        signal?: AbortSignal;
+        baseUrl: string;
+      },
+    ) {
+      const url = boardEventsUrl(handlers.baseUrl, projectId);
+      return fetchEventSource(url, {
+        method: "GET",
+        credentials: "include",
+        signal: handlers.signal,
+        headers: handlers.getAccessToken()
+          ? { authorization: `Bearer ${handlers.getAccessToken()}` }
+          : {},
+        async onopen(res) {
+          if (!res.ok) throw new Error(`SSE open failed: ${res.status}`);
+        },
+        onmessage(msg) {
+          if (!msg.event || msg.event.startsWith("ping")) return;
+          handlers.onEvent({ event: msg.event });
+        },
+        onerror(err) {
+          handlers.onError?.(err);
+          throw err;
+        },
+      });
     },
 
     async listSessions(projectId: string) {
@@ -562,6 +639,20 @@ export type FacadeClient = ReturnType<typeof createFacadeClient>;
 /** Session event stream is Facade-only. Never `/agent/event`. */
 export function sessionEventsUrl(baseUrl: string, sessionId: string) {
   return `${baseUrl.replace(/\/$/, "")}/v1/sessions/${sessionId}/events`;
+}
+
+export function boardEventsUrl(baseUrl: string, projectId: string) {
+  return `${baseUrl.replace(/\/$/, "")}/v1/projects/${projectId}/board/events`;
+}
+
+function issueSearchParams(query: IssueListQuery) {
+  const search = new URLSearchParams();
+  if (query.status) search.set("status", query.status);
+  if (query.assignee) search.set("assignee", query.assignee);
+  if (query.label) search.set("label", query.label);
+  if (query.priority) search.set("priority", query.priority);
+  if (query.q) search.set("q", query.q);
+  return search;
 }
 
 function commonFileUrl(projectId: string, path: string) {

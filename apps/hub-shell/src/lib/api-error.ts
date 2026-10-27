@@ -32,7 +32,22 @@ export async function getApiErrorMessage(
       if (code === "PROTECTED_PATH") return message || "受保护前缀仅项目 owner 可修改";
       if (code === "QUOTA_EXCEEDED") return message || "公共空间配额不足";
       if (code === "INVALID_PATH") return message || "路径不合法";
+      if (code === "INVALID_TRANSITION" || response.status === 422) {
+        if (message && /resolutionNote is required/i.test(message)) {
+          return "进入评审或已解决时必须填写说明";
+        }
+        if (message && /Cannot transition/i.test(message)) {
+          return "不能这样移动问题，请按待办、进行中、评审、已解决的顺序调整";
+        }
+        return message || "当前状态不能这样变更";
+      }
+      if (code === "ISSUE_CONFLICT") {
+        return "看板已更新，请刷新后再试";
+      }
       if (code === "PRECONDITION_FAILED" || response.status === 412) {
+        if (message && /Issue was updated/i.test(message)) {
+          return "这张卡片刚被别人改过，请刷新后再试";
+        }
         return message || "文件已被他人修改，请重新打开后再保存";
       }
       if (code === "INSTANCE_IN_USE") return "实例仍有工作区在使用，无法删除";
@@ -68,7 +83,12 @@ export async function getApiErrorMessage(
         }
         return "操作冲突（例如取消绑定会去掉最后一名 owner）";
       }
-      if (response.status === 403) return message || "没有权限执行此操作";
+      if (response.status === 403) {
+        if (message && /assignee, creator, or project owner/i.test(message)) {
+          return "只有负责人、创建人或项目 owner 可以移入评审或已解决";
+        }
+        return message || "没有权限执行此操作";
+      }
       if (response.status === 404) return message || "资源不存在";
       if (message) return message;
     } catch {

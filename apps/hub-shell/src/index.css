@@ -21,6 +21,64 @@
     "Microsoft YaHei", system-ui, sans-serif;
 }
 
+[cmdk-overlay] {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: #10182866;
+}
+
+[cmdk-dialog] {
+  position: fixed;
+  z-index: 81;
+  top: 18%;
+  left: 50%;
+  width: min(520px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  overflow: hidden;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 16px 48px #1018282e;
+}
+
+[cmdk-input] {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #e4e7ec;
+  padding: 14px 16px;
+  font-size: 13px;
+  outline: none;
+}
+
+[cmdk-list] {
+  max-height: 320px;
+  overflow: auto;
+  padding: 6px;
+}
+
+[cmdk-item] {
+  display: flex;
+  cursor: pointer;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #344054;
+}
+
+[cmdk-item][data-selected="true"] {
+  background: #eef2ff;
+  color: #24356e;
+}
+
+[cmdk-empty] {
+  padding: 16px;
+  font-size: 12px;
+  color: #667085;
+}
+
 @layer base {
   html,
   body,

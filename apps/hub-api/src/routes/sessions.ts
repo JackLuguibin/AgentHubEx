@@ -13,6 +13,8 @@ import { makeEnvelope, type Envelope } from "@agenthub/runtime-contract";
 import { opencodeAdapter } from "@agenthub/adapter-opencode";
 import type { AppEnv } from "../context.js";
 import { requireAuth } from "../middleware/auth.js";
+import { publishBoard } from "../lib/board-events.js";
+import { getIssue } from "../services/issues.js";
 import {
   abortSession,
   archiveSession,
@@ -129,6 +131,14 @@ export function sessionRoutes() {
         env.RUNTIME_MOCK,
         body,
       );
+      if (body.issueId) {
+        try {
+          const issue = await getIssue(c.get("db"), body.issueId, p.userId, p.isPlatformAdmin);
+          await publishBoard(c.get("redis"), projectId, "issue.upserted", issue);
+        } catch {
+          /* session already exists; board clients poll */
+        }
+      }
       return c.json(session, 201);
     },
   );

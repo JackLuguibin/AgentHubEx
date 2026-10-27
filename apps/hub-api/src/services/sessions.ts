@@ -16,6 +16,7 @@ import { opencodeAdapter } from "@agenthub/adapter-opencode";
 import { DEFAULT_CAPABILITIES, type InstanceCtx } from "@agenthub/runtime-contract";
 import type { z } from "zod";
 import { AppError, conflict, forbidden, notFound } from "../errors.js";
+import { applySessionIssueLink, prepareSessionIssue } from "./issues.js";
 import { recordAudit } from "../lib/audit.js";
 import { decryptSecret, encryptSecret } from "../lib/crypto.js";
 import { newId } from "../lib/id.js";
@@ -554,6 +555,10 @@ export async function createSession(
     instance.id,
   );
 
+  const linkedIssue = input.issueId
+    ? await prepareSessionIssue(db, projectId, input.issueId)
+    : null;
+
   const ctx = toInstanceCtx(instance, platformDek, runtimeMock);
   const { ref } = await opencodeAdapter.createSession(ctx, {
     title: input.title,
@@ -561,7 +566,11 @@ export async function createSession(
   });
 
   const id = newId();
-  const title = input.title ?? "新会话";
+  let title = input.title?.trim() || (linkedIssue ? `${linkedIssue.key} · ${linkedIssue.title}` : "新会话");
+  if (linkedIssue && !title.includes(linkedIssue.key)) {
+    title = `${linkedIssue.key} · ${title}`;
+  }
+  title = title.slice(0, 200);
   const [row] = await db
     .insert(agentSessions)
     .values({
@@ -582,6 +591,10 @@ export async function createSession(
       agent: input.agent,
     })
     .returning();
+
+  if (linkedIssue) {
+    await applySessionIssueLink(db, linkedIssue.id, userId);
+  }
 
   const session = await mapSession(db, row!);
 

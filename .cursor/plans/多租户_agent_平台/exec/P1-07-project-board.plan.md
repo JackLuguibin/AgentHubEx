@@ -4,24 +4,25 @@ overview: React 看板四列（dnd-kit）+人工确认评审/已解决+从 Issue
 todos:
   - id: board-api
     content: 完善 Issue API：状态机、resolutionNote、linkedSessionIds
-    status: pending
+    status: completed
   - id: board-ui-dnd
     content: 看板四列+折叠取消；dnd-kit 拖拽改状态
-    status: pending
+    status: completed
   - id: board-filters
     content: 列表/搜索/成员/优先级筛选与 ⌘K 搜问题
-    status: pending
+    status: completed
   - id: human-confirm
     content: 进入 in_review/done 须人工确认+说明；owner 可强制关闭
-    status: pending
+    status: completed
   - id: issue-open-session
     content: 从 Issue 创建本人关联会话（标题含 key）
-    status: pending
+    status: completed
   - id: dod-board
     content: DoD：A5/A6；他人仅见关联元数据不可读正文
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P1-07 项目看板
 
 > **索引 todo**：`phase1-project-board` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)
