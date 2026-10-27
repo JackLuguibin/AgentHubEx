@@ -10,6 +10,8 @@ import {
   upsertEditorTab,
   applyEnvelope,
   browserMustNotCallAgent,
+  sessionChangedPaths,
+  toolPresentation,
   credentialSwitchLocked,
   isCommonPath,
   normalizeAgentFile,
@@ -52,7 +54,32 @@ describe("workbench stream model", () => {
       toolName: "read",
       toolPending: false,
       text: "ok",
+      toolInput: { path: "README.md" },
     });
+    expect(toolPresentation(lines[1]!).summary).toBe("/README.md");
+  });
+
+  it("keeps edited paths on the session change list and skips reads", () => {
+    const lines = applyEnvelope(
+      envelope("tool_call", {
+        toolId: "t1",
+        name: "edit",
+        input: { path: "src/main.ts", oldString: "a", newString: "b" },
+      }),
+      [],
+      new Map(),
+    ).lines;
+    expect(sessionChangedPaths(lines, [])).toEqual(["/src/main.ts"]);
+    expect(toolPresentation(lines[0]!).diff).toEqual([
+      { kind: "del", text: "a" },
+      { kind: "add", text: "b" },
+    ]);
+    const read = applyEnvelope(
+      envelope("tool_call", { toolId: "t2", name: "read", input: { path: "README.md" } }),
+      [],
+      new Map(),
+    ).lines;
+    expect(sessionChangedPaths(read, [])).toEqual([]);
   });
 
   it("opens a permission ask and clears it when resolved", () => {

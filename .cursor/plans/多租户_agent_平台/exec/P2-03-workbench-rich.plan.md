@@ -43,7 +43,7 @@ isProject: false
 
 ## 实现清单
 
-- 不追求对齐 OpenCode Desktop 全量 IDE
+- 会话页布局对标 OpenCode Web：左会话、中对话、右本次改动/全部文件、底栏终端。不做 LSP、插件、分屏编辑器，不 vendor OpenCode Web
 
 ## DoD
 

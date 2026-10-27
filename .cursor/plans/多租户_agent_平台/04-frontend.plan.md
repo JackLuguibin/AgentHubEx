@@ -57,7 +57,7 @@ flowchart TB
 | 阶段 | 范围 |
 |---|---|
 | **P1（MVP）** | 本人会话 CRUD、选凭据开会话、流式 assistant/tool 事件、权限允许/拒绝、只读文件树 + 文本预览、同步配置/公共资料、关联 Issue、capabilities 降级隐藏 |
-| **P2+** | 多标签代码预览/轻量编辑、diff、按 capabilities 开终端/PTY；不追求首版对齐 OpenCode Desktop 全量 IDE |
+| **P2+** | 会话页布局对标 OpenCode Web：左会话、中对话（Markdown 与工具卡片）、右栏「本次改动 / 全部文件」、底栏终端；代码预览/轻量编辑、diff。不做 LSP、插件、分屏编辑器，不嵌入 OpenCode Web |
 
 ### 连接与产品规则（ADR-008，已收紧）
 
@@ -73,7 +73,7 @@ flowchart TB
 - 招人/生态/组件（shadcn、dnd-kit、TanStack）统一，无双运行时与 iframe 鉴权坑。  
 - 多租户壳与会话页共享路由守卫、Query 缓存、设计 token。  
 - 引擎差异收敛在 **服务端 adapter**，前端不跟 OpenCode Web 发版绑死。  
-- 代价是自研 Workbench UI；用分期范围把 P1 压在「能对话、能审权限、能看文件」而不是重 IDE。
+- 代价是自研 Workbench UI。布局对标 OpenCode 会话页，能力仍按 `capabilities` 降级，不把 OpenCode Web 嵌进来。
 
 ### Hub Shell 信息架构（对齐最新 html：三组导航）
 

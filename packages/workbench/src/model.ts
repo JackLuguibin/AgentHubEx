@@ -7,6 +7,7 @@ export type ChatLine = {
   role: ChatRole;
   text: string;
   toolName?: string;
+  toolInput?: unknown;
   toolPending?: boolean;
   toolError?: boolean;
 };
@@ -237,7 +238,7 @@ export function applyEnvelope(
   if (envelope.type === "tool_call") {
     const data = envelope.data as { toolId: string; name: string; input: unknown };
     return {
-      lines: upsertTool(lines, data.toolId, data.name, formatUnknown(data.input), true, false),
+      lines: upsertTool(lines, data.toolId, data.name, formatUnknown(data.input), true, false, data.input),
     };
   }
 
@@ -332,6 +333,71 @@ function upsertText(lines: ChatLine[], id: string, role: ChatRole, text: string)
   return copy;
 }
 
+const CHANGE_NAME = /edit|write|patch|apply|create|delete|str_replace|multiedit/i;
+const SKIP_NAME = /^(read|grep|glob|find|list|ls|bash|shell|webfetch|websearch)$/i;
+
+export function pathFromToolInput(input: unknown): string | null {
+  if (!input || typeof input !== "object") return null;
+  const record = input as Record<string, unknown>;
+  const raw = record.path ?? record.filePath ?? record.file_path;
+  if (typeof raw !== "string" || !raw.trim() || raw.includes("\n")) return null;
+  const path = raw.trim();
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
+export function countsAsSessionChange(name: string, input: unknown) {
+  if (SKIP_NAME.test(name)) return false;
+  if (CHANGE_NAME.test(name)) return pathFromToolInput(input) != null;
+  if (!input || typeof input !== "object") return false;
+  const record = input as Record<string, unknown>;
+  const hasBody =
+    "oldString" in record ||
+    "newString" in record ||
+    "old_string" in record ||
+    "new_string" in record ||
+    "content" in record ||
+    "contents" in record;
+  return hasBody && pathFromToolInput(input) != null;
+}
+
+export function sessionChangedPaths(lines: ChatLine[], tabs: EditorTab[]) {
+  const paths: string[] = [];
+  for (const line of lines) {
+    if (line.role !== "tool" || !line.toolName || !countsAsSessionChange(line.toolName, line.toolInput)) continue;
+    const path = pathFromToolInput(line.toolInput);
+    if (path) paths.push(path);
+  }
+  for (const tab of tabs) {
+    if (tab.draft !== tab.original) paths.push(tab.path);
+  }
+  return [...new Set(paths)];
+}
+
+export function toolPresentation(line: ChatLine): { summary: string; diff: DiffLine[] | null; output: string } {
+  const record = line.toolInput && typeof line.toolInput === "object" ? (line.toolInput as Record<string, unknown>) : null;
+  const command = stringField(record, "command") ?? stringField(record, "cmd");
+  const path = pathFromToolInput(line.toolInput);
+  const oldText = stringField(record, "oldString") ?? stringField(record, "old_string");
+  const newText = stringField(record, "newString") ?? stringField(record, "new_string");
+  const diff =
+    oldText != null && newText != null
+      ? lineDiff(oldText, newText)
+          .filter((item) => item.kind !== "same")
+          .slice(0, 80)
+      : null;
+  return {
+    summary: command ?? path ?? (line.toolPending ? line.text : ""),
+    diff,
+    output: line.toolPending ? "" : line.text,
+  };
+}
+
+function stringField(record: Record<string, unknown> | null, key: string) {
+  if (!record) return null;
+  const value = record[key];
+  return typeof value === "string" ? value : null;
+}
+
 function upsertTool(
   lines: ChatLine[],
   id: string,
@@ -339,19 +405,22 @@ function upsertTool(
   text: string,
   pending: boolean,
   isError: boolean,
+  input?: unknown,
 ): ChatLine[] {
   const idx = lines.findIndex((line) => line.id === id);
+  const previous = idx === -1 ? undefined : lines[idx];
   const next: ChatLine = {
     id,
     role: "tool",
     text,
-    toolName: name,
+    toolName: name || previous?.toolName,
+    toolInput: input !== undefined ? input : previous?.toolInput,
     toolPending: pending,
     toolError: isError,
   };
   if (idx === -1) return [...lines, next];
   const copy = [...lines];
-  copy[idx] = { ...copy[idx]!, ...next, toolName: name || copy[idx]!.toolName };
+  copy[idx] = next;
   return copy;
 }
 

@@ -153,7 +153,7 @@ export function CodePane({
           <h3 className="m-0 text-[13px] font-medium text-[#475467]">打开工作空间文件</h3>
           <p className="m-0">
             {filesOn
-              ? "在左侧打开文件后，可以预览、查看差异，并编辑个人区文本。"
+              ? "从上方列表打开文件后，可以预览、查看差异，并编辑个人区文本。"
               : "当前运行实例没有文件能力，文件树已隐藏。"}
           </p>
         </div>

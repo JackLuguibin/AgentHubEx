@@ -14,6 +14,7 @@ import {
   ChevronDown,
   Menu,
   MoreHorizontal,
+  PanelLeft,
   Search,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthProvider.js";
@@ -45,16 +46,24 @@ function NavGroup({
   items,
   projectId,
   tenantId,
+  collapsed,
 }: {
   label: string;
   hint?: string;
   items: NavItem[];
   projectId: string | null;
   tenantId: string | null;
+  collapsed: boolean;
 }) {
   return (
     <>
-      <div className="mb-[11px] mx-3 flex justify-between text-[10px] tracking-[1px] text-[#96a098]">
+      {collapsed ? <div className="mx-2 mb-2 hidden h-px bg-ah-line min-[681px]:block" /> : null}
+      <div
+        className={cn(
+          "mx-3 mb-[11px] flex justify-between text-[10px] tracking-[1px] text-[#96a098]",
+          collapsed && "min-[681px]:hidden",
+        )}
+      >
         {label}
         {hint ? <span className="text-[8px] tracking-[0.5px]">{hint}</span> : null}
       </div>
@@ -78,17 +87,21 @@ function NavGroup({
               key={item.key}
               to={to}
               end={item.scope === "platform"}
+              title={item.label}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-3 rounded-[7px] px-[13px] py-[11px] text-xs text-[#475467] no-underline hover:bg-[#f2f4f7]",
+                  "flex items-center gap-3 rounded-[7px] py-[11px] text-xs text-[#475467] no-underline hover:bg-[#f2f4f7]",
+                  collapsed ? "px-[13px] min-[681px]:justify-center min-[681px]:px-2" : "px-[13px]",
                   isActive && "bg-ah-accent-soft font-[650] text-ah-accent",
                 )
               }
             >
               <ItemIcon className="h-[17px] w-[17px] shrink-0" strokeWidth={1.6} />
-              {item.label}
+              <span className={cn(collapsed && "min-[681px]:sr-only")}>{item.label}</span>
               {item.phase ? (
-                <span className="ml-auto text-[9px] text-[#a0aaa1]">{item.phase}</span>
+                <span className={cn("ml-auto text-[9px] text-[#a0aaa1]", collapsed && "min-[681px]:hidden")}>
+                  {item.phase}
+                </span>
               ) : null}
             </NavLink>
           );
@@ -107,6 +120,17 @@ export function ShellLayout() {
   const params = useParams();
   const { toast } = useToast();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem("ah.sidebar") === "collapsed",
+  );
+  const workbench = location.pathname.includes("/workbench");
+  const toggleSidebar = () => {
+    setSidebarCollapsed((value) => {
+      const next = !value;
+      localStorage.setItem("ah.sidebar", next ? "collapsed" : "open");
+      return next;
+    });
+  };
 
   const activeProjectId = params.projectId ?? projectId;
   const tenant = user?.tenants.find((t) => t.id === tenantId) ?? user?.tenants[0];
@@ -168,9 +192,12 @@ export function ShellLayout() {
       <aside
         id="sidebar"
         className={cn(
-          "fixed inset-y-0 left-0 z-20 flex h-dvh w-sidebar flex-col overflow-hidden border-r border-ah-line bg-white px-[18px] pb-4 pt-7 max-[960px]:w-[210px] max-[960px]:px-[13px] max-[960px]:pt-[22px]",
-          "max-[680px]:w-sidebar max-[680px]:-translate-x-full max-[680px]:shadow-[8px_0_30px_#143a1e20] max-[680px]:transition-transform",
+          "fixed inset-y-0 left-0 z-20 flex h-dvh w-sidebar flex-col overflow-hidden border-r border-ah-line bg-white px-[18px] pb-4 pt-7",
+          "max-[680px]:-translate-x-full max-[680px]:shadow-[8px_0_30px_#143a1e20] max-[680px]:transition-transform",
           sidebarOpen && "max-[680px]:translate-x-0",
+          sidebarCollapsed
+            ? "min-[681px]:w-[72px] min-[681px]:px-2"
+            : "max-[960px]:w-[210px] max-[960px]:px-[13px] max-[960px]:pt-[22px]",
         )}
       >
         <Link
@@ -191,15 +218,23 @@ export function ShellLayout() {
               className="absolute -top-[3px] right-px text-white"
             />
           </span>
-          AgentHub
-          <span className="-ml-[5px] rounded bg-[#f8fafc] px-1 py-[3px] text-[9px] tracking-[0.5px] text-[#475467]">
+          <span className={cn(sidebarCollapsed && "min-[681px]:hidden")}>AgentHub</span>
+          <span
+            className={cn(
+              "-ml-[5px] rounded bg-[#f8fafc] px-1 py-[3px] text-[9px] tracking-[0.5px] text-[#475467]",
+              sidebarCollapsed && "min-[681px]:hidden",
+            )}
+          >
             EX
           </span>
         </Link>
 
         <button
           type="button"
-          className="my-7 mb-6 flex w-full cursor-pointer items-center gap-2.5 rounded-[9px] border border-ah-line bg-white px-2 py-3 text-left hover:bg-[#fafbfe]"
+          className={cn(
+            "my-7 mb-6 flex w-full cursor-pointer items-center gap-2.5 rounded-[9px] border border-ah-line bg-white px-2 py-3 text-left hover:bg-[#fafbfe]",
+            sidebarCollapsed && "min-[681px]:justify-center min-[681px]:px-0",
+          )}
           onClick={() => {
             if (switchableTenants.length < 2 || !tenantId) {
               navigate("/tenants");
@@ -217,7 +252,7 @@ export function ShellLayout() {
           <span className="grid h-[30px] w-[30px] place-items-center rounded-[7px] border border-ah-line bg-[#f8fafc] text-[11px] font-bold text-[#475467]">
             {(tenant?.name ?? "T").slice(0, 1).toUpperCase()}
           </span>
-          <span className="min-w-0 flex-1">
+          <span className={cn("min-w-0 flex-1", sidebarCollapsed && "min-[681px]:hidden")}>
             <strong className="block truncate text-xs text-[#344054]">
               {tenant?.name ?? "未选择租户"}
             </strong>
@@ -226,7 +261,7 @@ export function ShellLayout() {
               {tenant?.status === "suspended" ? " · 已停用" : ""}
             </small>
           </span>
-          <Icon icon={ChevronDown} size="sm" className="text-ah-muted" />
+          <Icon icon={ChevronDown} size="sm" className={cn("text-ah-muted", sidebarCollapsed && "min-[681px]:hidden")} />
         </button>
 
         <div
@@ -238,12 +273,14 @@ export function ShellLayout() {
             items={managementNav}
             projectId={activeProjectId}
             tenantId={tenantId}
+            collapsed={sidebarCollapsed}
           />
           <NavGroup
             label="工作空间"
             items={workspaceNav}
             projectId={activeProjectId}
             tenantId={tenantId}
+            collapsed={sidebarCollapsed}
           />
           <NavGroup
             label="项目配置"
@@ -251,11 +288,17 @@ export function ShellLayout() {
             items={adminNav}
             projectId={activeProjectId}
             tenantId={tenantId}
+            collapsed={sidebarCollapsed}
           />
         </div>
 
         <div className="mt-3 shrink-0 border-t border-ah-line bg-white pt-3">
-          <div className="rounded-lg border border-ah-line bg-[#f8fafc] p-[13px] text-[10px] text-[#475467]">
+          <div
+            className={cn(
+              "rounded-lg border border-ah-line bg-[#f8fafc] p-[13px] text-[10px] text-[#475467]",
+              sidebarCollapsed && "min-[681px]:hidden",
+            )}
+          >
             <div>
               今日 Token 用量 <strong className="float-right text-ah-accent">12%</strong>
             </div>
@@ -277,7 +320,7 @@ export function ShellLayout() {
             title="退出登录"
           >
             <Avatar tone="green">{initials(user?.displayName ?? "AH")}</Avatar>
-            <span className="min-w-0 flex-1">
+            <span className={cn("min-w-0 flex-1", sidebarCollapsed && "min-[681px]:hidden")}>
               <strong className="block truncate text-xs text-[#344054]">
                 {user?.displayName}
               </strong>
@@ -285,15 +328,19 @@ export function ShellLayout() {
                 {user?.isPlatformAdmin ? "平台管理员" : (tenant?.role ?? "成员")}
               </small>
             </span>
-            <Icon icon={MoreHorizontal} size="sm" className="text-ah-muted" />
+            <Icon
+              icon={MoreHorizontal}
+              size="sm"
+              className={cn("text-ah-muted", sidebarCollapsed && "min-[681px]:hidden")}
+            />
           </button>
         </div>
       </aside>
 
       <div
         className={cn(
-          "grid h-dvh min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] ml-sidebar",
-          "max-[960px]:ml-[210px] max-[680px]:ml-0",
+          "grid h-dvh min-w-0 grid-rows-[auto_minmax(0,1fr)_auto]",
+          sidebarCollapsed ? "ml-[72px] max-[680px]:ml-0" : "ml-sidebar max-[960px]:ml-[210px] max-[680px]:ml-0",
         )}
       >
         <header className="z-10 flex h-[62px] min-w-0 items-center justify-between border-b border-ah-line bg-white px-6 max-[680px]:h-[60px] max-[680px]:gap-2.5 max-[680px]:px-[15px]">
@@ -304,6 +351,16 @@ export function ShellLayout() {
             onClick={() => setSidebarOpen((v) => !v)}
           >
             <Icon icon={Menu} size="md" />
+          </button>
+          <button
+            type="button"
+            className="mr-3 hidden h-8 w-8 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-[#667085] hover:bg-[#f2f4f7] hover:text-[#344054] min-[681px]:grid"
+            aria-label={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
+            aria-pressed={sidebarCollapsed}
+            title={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
+            onClick={toggleSidebar}
+          >
+            <Icon icon={PanelLeft} size="md" />
           </button>
           <TopbarSwitcher crumb={crumb} />
           <div className="flex shrink-0 items-center gap-4">
@@ -336,7 +393,10 @@ export function ShellLayout() {
         </header>
 
         <main
-          className="flex min-h-0 min-w-0 flex-col gap-3 overflow-auto px-6 py-5 pb-4 max-[680px]:px-4 [&>*]:min-w-0 [&>*:not(.flex-1)]:shrink-0"
+          className={cn(
+            "flex min-h-0 min-w-0 flex-col gap-3 overflow-auto px-6 py-5 pb-4 max-[680px]:px-4 [&>*]:min-w-0 [&>*:not(.flex-1)]:shrink-0",
+            workbench && "gap-0 overflow-hidden p-0",
+          )}
           onClick={() => setSidebarOpen(false)}
         >
           <Outlet />
