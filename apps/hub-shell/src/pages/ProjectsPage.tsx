@@ -228,7 +228,14 @@ export function ProjectsPage() {
         actions={
           canCreate ? (
             <>
-              <Button variant="secondary" disabled title="P1-02">
+              <Button
+                variant="secondary"
+                disabled={!projectId}
+                title={projectId ? "打开成员与归属" : "请先选择项目"}
+                onClick={() => {
+                  if (projectId) navigate(`/p/${projectId}/members?view=users`);
+                }}
+              >
                 用户与归属
               </Button>
               <Button onClick={openCreate} disabled={!tenantActive}>

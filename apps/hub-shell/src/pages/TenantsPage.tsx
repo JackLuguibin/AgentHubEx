@@ -55,7 +55,7 @@ function formatQuota(t: Tenant) {
 
 export function TenantsPage() {
   const { user, refreshMe } = useAuth();
-  const { tenantId, switchTenant, projects } = useTenant();
+  const { tenantId, switchTenant, projects, projectId } = useTenant();
   const { toast } = useToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -309,7 +309,14 @@ export function TenantsPage() {
         description="管理组织、所有者、资源配额与租户生命周期。"
         actions={
           <>
-            <Button variant="secondary" disabled title="P1-02">
+            <Button
+              variant="secondary"
+              disabled={!projectId}
+              title={projectId ? "打开当前项目的成员与归属" : "请先选择项目"}
+              onClick={() => {
+                if (projectId) navigate(`/p/${projectId}/members?view=users`);
+              }}
+            >
               用户与归属
             </Button>
             <Button onClick={openCreate}>

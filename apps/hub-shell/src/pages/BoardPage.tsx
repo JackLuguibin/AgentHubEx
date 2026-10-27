@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -86,6 +86,7 @@ function linkSummary(issue: Issue) {
 export function BoardPage() {
   const { projectId = "", issueKey } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { projects } = useTenant();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -159,6 +160,14 @@ export function BoardPage() {
   const detail =
     flat.find((issue) => issue.key === issueKey) ??
     (detailQuery.data?.key === issueKey ? detailQuery.data : null);
+
+  useEffect(() => {
+    if (searchParams.get("search") !== "1") return;
+    setPaletteOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("search");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

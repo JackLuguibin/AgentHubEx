@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   DirectoryUser,
@@ -91,7 +92,11 @@ export function MembersPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [view, setView] = useState<View>("project");
+  const [searchParams] = useSearchParams();
+  const [view, setView] = useState<View>(searchParams.get("view") === "users" ? "users" : "project");
+  useEffect(() => {
+    if (searchParams.get("view") === "users") setView("users");
+  }, [searchParams]);
   const [userQuery, setUserQuery] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [addUserOpen, setAddUserOpen] = useState(false);

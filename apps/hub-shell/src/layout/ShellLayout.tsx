@@ -312,20 +312,24 @@ export function ShellLayout() {
             </span>
             <button
               type="button"
-              className="grid h-[30px] w-[26px] cursor-pointer place-items-center border-0 bg-transparent text-[#829087] hover:text-[#344054]"
-              aria-label="全局搜索"
-              title="Search（后续）"
+              className="grid h-[30px] w-[26px] cursor-pointer place-items-center border-0 bg-transparent text-[#829087] hover:text-[#344054] disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="搜索问题"
+              title={activeProjectId ? "搜索问题" : "请先进入项目"}
+              disabled={!activeProjectId}
+              onClick={() => {
+                if (activeProjectId) navigate(`/p/${activeProjectId}/board?search=1`);
+              }}
             >
               <Icon icon={Search} size="md" />
             </button>
             <button
               type="button"
-              className="relative grid h-[30px] w-[26px] cursor-pointer place-items-center border-0 bg-transparent text-[#829087] hover:text-[#344054]"
+              className="grid h-[30px] w-[26px] cursor-not-allowed place-items-center border-0 bg-transparent text-[#829087]"
               aria-label="通知"
-              title="通知（后续）"
+              title="这一阶段没有通知中心"
+              disabled
             >
               <Icon icon={Bell} size="md" />
-              <i className="absolute top-1.5 right-1 h-1 w-1 rounded-full bg-[#c89366]" />
             </button>
             <Avatar tone="green">{initials(user?.displayName ?? "AH")}</Avatar>
           </div>
