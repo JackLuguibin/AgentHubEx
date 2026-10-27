@@ -4,6 +4,7 @@ import { runtimeInstances, workspaces } from "@agenthub/db";
 import { can } from "@agenthub/auth";
 import { AppError, forbidden, notFound } from "../errors.js";
 import { classifyAgentUpstreamPath } from "../lib/agent-allowlist.js";
+import { recordAudit, rethrowAccessDenied } from "../lib/audit.js";
 import { instanceRowToCtx } from "./instances.js";
 import { resolveProjectAccess } from "./projects.js";
 
@@ -29,16 +30,46 @@ export async function proxyWorkspaceAgent(
     .limit(1);
   if (!ws) throw notFound("Workspace not found");
 
-  const access = await resolveProjectAccess(
-    db,
-    ws.projectId,
-    userId,
-    isPlatformAdmin,
-  );
+  let access;
+  try {
+    access = await resolveProjectAccess(
+      db,
+      ws.projectId,
+      userId,
+      isPlatformAdmin,
+    );
+  } catch (err) {
+    rethrowAccessDenied(err, {
+      actorId: userId,
+      tenantId: ws.tenantId,
+      projectId: ws.projectId,
+      targetType: "workspace",
+      targetId: ws.id,
+      meta: { reason: "not_member", surface: "agent" },
+    });
+  }
   if (!can(access.projectRole, access.tenantRole, "workspace.own", { isPlatformAdmin })) {
+    recordAudit({
+      action: "access.denied",
+      actorId: userId,
+      tenantId: ws.tenantId,
+      projectId: ws.projectId,
+      targetType: "workspace",
+      targetId: ws.id,
+      meta: { reason: "forbidden", surface: "agent" },
+    });
     throw forbidden();
   }
   if (ws.ownerUserId !== userId && !isPlatformAdmin) {
+    recordAudit({
+      action: "access.denied",
+      actorId: userId,
+      tenantId: ws.tenantId,
+      projectId: ws.projectId,
+      targetType: "workspace",
+      targetId: ws.id,
+      meta: { reason: "not_owner", surface: "agent" },
+    });
     throw notFound("Workspace not found");
   }
 

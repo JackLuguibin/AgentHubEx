@@ -14,6 +14,8 @@ import { opencodeAdapter } from "@agenthub/adapter-opencode";
 import type { AppEnv } from "../context.js";
 import { requireAuth } from "../middleware/auth.js";
 import { publishBoard } from "../lib/board-events.js";
+import { cursorMissing, streamSeqs } from "../lib/sse-cursor.js";
+import { addDailyTokenUsage } from "../lib/token-quota.js";
 import { getIssue } from "../services/issues.js";
 import {
   abortSession,
@@ -130,6 +132,7 @@ export function sessionRoutes() {
         env.PLATFORM_DEK,
         env.RUNTIME_MOCK,
         body,
+        c.get("redis"),
       );
       if (body.issueId) {
         try {
@@ -344,6 +347,7 @@ export function sessionRoutes() {
         env.PLATFORM_DEK,
         env.RUNTIME_MOCK,
         body,
+        c.get("redis"),
       );
       return c.json(result, 202);
     },
@@ -419,10 +423,19 @@ export function sessionRoutes() {
         }, 15_000);
 
         try {
-          // Replay from Redis if Last-Event-ID (= Envelope.seq) present
+          // Replay from Redis if Last-Event-ID (= Envelope.seq) present.
+          // A cursor the stream no longer holds is stale: one error frame, then close.
           if (lastEventId) {
-            const after = Number(lastEventId);
             const entries = await redis.xrange(streamKey, "-", "+");
+            if (cursorMissing(lastEventId, streamSeqs(entries))) {
+              const envelope = makeEnvelope(session.id, 0, "error", {
+                code: "SSE_CURSOR_STALE",
+                message: "Event cursor is no longer available",
+              });
+              write(`event: error\ndata: ${JSON.stringify(envelope)}\n\n`);
+              return;
+            }
+            const after = Number(lastEventId);
             for (const [, fields] of entries) {
               const dataIdx = fields.indexOf("data");
               const seqIdx = fields.indexOf("seq");
@@ -461,6 +474,14 @@ export function sessionRoutes() {
               data,
             );
             write(`id: ${seq}\nevent: ${envelope.type}\ndata: ${data}\n\n`);
+            if (envelope.type === "usage") {
+              const usage = envelope.data as { inputTokens?: number; outputTokens?: number };
+              await addDailyTokenUsage(
+                redis,
+                session.tenantId,
+                (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+              );
+            }
             if (envelope.type === "session.status") {
               const status = (envelope.data as { status?: string }).status;
               const mapped =

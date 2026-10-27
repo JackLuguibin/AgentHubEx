@@ -156,15 +156,16 @@ LLM：凭据 `baseUrl` 指向内网网关 / vLLM / Ollama；勿写死公网 `api
 
 | 项 | 状态 |
 |---|---|
-| `scripts/build-offline-bundle.sh` | **P1 占位**：路径与出口约定已固定，实现待 P1-08 / N4 |
-| 完整 offline 打包 CI | **不做于 P0**（见执行手册「明确不做」） |
-| N4 实机「仅导入 bundle」演练 | **P1-08** |
+| `scripts/build-offline-bundle.sh` | **dry-run**：写出目录、迁移、校验和与 `VERSION.txt`；不访问 npm，不 `docker pull` |
+| 完整 offline 打包 CI（镜像 tar） | 仍在有网构建机上补 `images/`；本脚本不拉取镜像 |
+| N4 实机「仅导入 bundle」演练 | dry-run 可自动验收；断网装机见 [P1 验收清单](../../docs/acceptance/p1-mvp.md) |
 
 占位脚本用法：
 
 ```bash
 ./scripts/build-offline-bundle.sh
-# 预期：打印目标目录约定并 exit 0；不产生完整产物
+# 写出 deploy/offline-bundle/dry-run/（VERSION.txt、checksums.sha256、configs、migrations）
+# 不执行 npm / pnpm，不 docker pull
 ```
 
 ## 6. 与验收的交叉引用

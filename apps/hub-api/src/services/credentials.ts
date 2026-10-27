@@ -9,6 +9,7 @@ import { can, effectiveProjectRole } from "@agenthub/auth";
 import type { ProjectCredential, UserCredential } from "@agenthub/domain";
 import { conflict, forbidden, notFound } from "../errors.js";
 import { buildCredentialOptions } from "../lib/credential-options.js";
+import { allowedHostsOf, assertProviderHostAllowed } from "../lib/provider-hosts.js";
 import { encryptSecret, last4OfSecret } from "../lib/crypto.js";
 import { newId } from "../lib/id.js";
 import { toIso } from "../lib/time.js";
@@ -238,6 +239,10 @@ export async function createProjectCredential(
     throw forbidden();
   }
   if (!input.secret) throw conflict("secret is required when creating a credential");
+  assertProviderHostAllowed(
+    input.metadata?.baseUrl as string | undefined,
+    allowedHostsOf(access.project.settings),
+  );
 
   if (input.isDefault) {
     await db
@@ -313,6 +318,12 @@ export async function updateProjectCredential(
     )
     .limit(1);
   if (!row) throw notFound("Credential not found");
+  if (input.metadata) {
+    assertProviderHostAllowed(
+      input.metadata.baseUrl as string | undefined,
+      allowedHostsOf(access.project.settings),
+    );
+  }
 
   if (input.isDefault) {
     await db

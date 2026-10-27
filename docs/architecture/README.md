@@ -27,6 +27,7 @@
 | 16 | [16-api-schema.md](16-api-schema.md) | 全部对外/内部 API 的字段级 Schema、示例、错误码 |
 | 17 | [17-libraries.md](17-libraries.md) | 各层流行库锁定清单（ADR-010） |
 | 18 | [18-intranet-offline.md](18-intranet-offline.md) | **内网 / 离线部署**、升级回滚、环境变量清单（ADR-011） |
+| — | [../acceptance/p1-mvp.md](../acceptance/p1-mvp.md) | **P1 验收勾选**（A1–A16、N1–N4） |
 | — | [exec 手册](../../.cursor/plans/多租户_agent_平台/exec/README.md) | **按 Phase 执行的实现手册**（含可勾选 todos） |
 
 ## 核心原则速览

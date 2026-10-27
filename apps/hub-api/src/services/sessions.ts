@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, ne } from "drizzle-orm";
+import type { Redis } from "ioredis";
 import type { Db } from "@agenthub/db";
 import {
   agentSessions,
@@ -17,8 +18,10 @@ import { DEFAULT_CAPABILITIES, type InstanceCtx } from "@agenthub/runtime-contra
 import type { z } from "zod";
 import { AppError, conflict, forbidden, notFound } from "../errors.js";
 import { applySessionIssueLink, prepareSessionIssue } from "./issues.js";
-import { recordAudit } from "../lib/audit.js";
+import { recordAudit, rethrowAccessDenied } from "../lib/audit.js";
 import { decryptSecret, encryptSecret } from "../lib/crypto.js";
+import { allowedHostsOf, assertProviderHostAllowed } from "../lib/provider-hosts.js";
+import { assertDailyTokenQuota, tokensPerDayOf } from "../lib/token-quota.js";
 import { newId } from "../lib/id.js";
 import { toIso } from "../lib/time.js";
 import { assertInstanceHealthyForConfig } from "./instances.js";
@@ -47,14 +50,52 @@ async function requireSessionAccess(
     .limit(1);
   if (!row || row.status === "archived") throw notFound("Session not found");
 
-  const access = await resolveProjectAccess(db, row.projectId, userId, isPlatformAdmin);
+  let access;
+  try {
+    access = await resolveProjectAccess(db, row.projectId, userId, isPlatformAdmin);
+  } catch (err) {
+    rethrowAccessDenied(err, {
+      actorId: userId,
+      tenantId: row.tenantId,
+      projectId: row.projectId,
+      targetType: "session",
+      targetId: row.id,
+      meta: { reason: "not_member" },
+    });
+  }
   if (!can(access.projectRole, access.tenantRole, "session.own", { isPlatformAdmin })) {
+    recordAudit({
+      action: "access.denied",
+      actorId: userId,
+      tenantId: row.tenantId,
+      projectId: row.projectId,
+      targetType: "session",
+      targetId: row.id,
+      meta: { reason: "forbidden" },
+    });
     throw forbidden();
   }
   if (row.ownerUserId !== userId && !isPlatformAdmin) {
+    recordAudit({
+      action: "access.denied",
+      actorId: userId,
+      tenantId: row.tenantId,
+      projectId: row.projectId,
+      targetType: "session",
+      targetId: row.id,
+      meta: { reason: "not_owner" },
+    });
     throw notFound("Session not found");
   }
   return { row, access };
+}
+
+function enforceCredentialHost(metadata: unknown, allowedHosts: string[] | undefined) {
+  const baseUrl =
+    metadata && typeof metadata === "object" && "baseUrl" in metadata
+      ? (metadata as { baseUrl?: string }).baseUrl
+      : undefined;
+  assertProviderHostAllowed(baseUrl, allowedHosts);
 }
 
 function projectCredAllowed(
@@ -73,6 +114,7 @@ async function resolveCredential(
   role: ProjectRole | null,
   canUseProject: boolean,
   input: CreateSessionInput,
+  allowedHosts: string[] | undefined,
 ): Promise<CredRef> {
   if (input.credentialId && input.credentialSource) {
     if (input.credentialSource === "user") {
@@ -92,6 +134,7 @@ async function resolveCredential(
           details: { code: "CREDENTIAL_POLICY_VIOLATION" },
         });
       }
+      enforceCredentialHost(uc.metadata, allowedHosts);
       return {
         source: "user",
         id: uc.id,
@@ -120,6 +163,7 @@ async function resolveCredential(
         details: { code: "CREDENTIAL_POLICY_VIOLATION" },
       });
     }
+    enforceCredentialHost(pc.metadata, allowedHosts);
     return {
       source: "project",
       id: pc.id,
@@ -142,6 +186,7 @@ async function resolveCredential(
       )
       .limit(1);
     if (pc && projectCredAllowed(pc.allowedRoles, role, canUseProject)) {
+      enforceCredentialHost(pc.metadata, allowedHosts);
       return {
         source: "project",
         id: pc.id,
@@ -159,6 +204,7 @@ async function resolveCredential(
       )
       .limit(1);
     if (uc) {
+      enforceCredentialHost(uc.metadata, allowedHosts);
       return {
         source: "user",
         id: uc.id,
@@ -504,15 +550,17 @@ export async function createSession(
   platformDek: string,
   runtimeMock: boolean,
   input: CreateSessionInput,
+  redis: Redis,
 ) {
   const access = await resolveProjectAccess(db, projectId, userId, isPlatformAdmin);
   if (!can(access.projectRole, access.tenantRole, "session.create", { isPlatformAdmin })) {
     throw forbidden();
   }
-  await assertTenantActive(db, access.project.tenantId);
+  const tenant = await assertTenantActive(db, access.project.tenantId);
   if (access.project.archivedAt) {
     throw new AppError(409, "PROJECT_ARCHIVED", "Project is archived");
   }
+  await assertDailyTokenQuota(redis, tenant.id, tokensPerDayOf(tenant.quota));
 
   const projectSettings = (access.project.settings ?? {}) as {
     defaultRuntimeType?: "opencode" | "claude";
@@ -535,6 +583,7 @@ export async function createSession(
     role,
     canUseProject,
     input,
+    allowedHostsOf(access.project.settings),
   );
 
   const instance = await ensureMockOrBoundInstance(
@@ -607,6 +656,7 @@ export async function createSession(
       platformDek,
       runtimeMock,
       { parts: [{ type: "text", text: input.initialPrompt }] },
+      redis,
     );
   }
 
@@ -723,8 +773,14 @@ export async function sendMessage(
   platformDek: string,
   runtimeMock: boolean,
   input: { parts: Array<{ type: string; text?: string; path?: string; mime?: string; dataBase64?: string }>; model?: string; agent?: string },
+  redis: Redis,
 ) {
-  const { row } = await requireSessionAccess(db, sessionId, userId, isPlatformAdmin);
+  const { row, access } = await requireSessionAccess(db, sessionId, userId, isPlatformAdmin);
+  const tenant = await assertTenantActive(db, access.project.tenantId);
+  if (access.project.archivedAt) {
+    throw new AppError(409, "PROJECT_ARCHIVED", "Project is archived");
+  }
+  await assertDailyTokenQuota(redis, tenant.id, tokensPerDayOf(tenant.quota));
   if (!row.runtimeSessionRef) {
     throw conflict("Session has no runtime ref");
   }
@@ -858,10 +914,42 @@ export async function syncWorkspaceConfig(
     .where(and(eq(workspaces.id, workspaceId), ne(workspaces.status, "deleted")))
     .limit(1);
   if (!ws) throw notFound("Workspace not found");
-  if (ws.ownerUserId !== userId && !isPlatformAdmin) throw notFound("Workspace not found");
+  if (ws.ownerUserId !== userId && !isPlatformAdmin) {
+    recordAudit({
+      action: "access.denied",
+      actorId: userId,
+      tenantId: ws.tenantId,
+      projectId: ws.projectId,
+      targetType: "workspace",
+      targetId: ws.id,
+      meta: { reason: "not_owner", surface: "sync-config" },
+    });
+    throw notFound("Workspace not found");
+  }
 
-  const access = await resolveProjectAccess(db, ws.projectId, userId, isPlatformAdmin);
+  let access;
+  try {
+    access = await resolveProjectAccess(db, ws.projectId, userId, isPlatformAdmin);
+  } catch (err) {
+    rethrowAccessDenied(err, {
+      actorId: userId,
+      tenantId: ws.tenantId,
+      projectId: ws.projectId,
+      targetType: "workspace",
+      targetId: ws.id,
+      meta: { reason: "not_member", surface: "sync-config" },
+    });
+  }
   if (!can(access.projectRole, access.tenantRole, "workspace.own", { isPlatformAdmin })) {
+    recordAudit({
+      action: "access.denied",
+      actorId: userId,
+      tenantId: ws.tenantId,
+      projectId: ws.projectId,
+      targetType: "workspace",
+      targetId: ws.id,
+      meta: { reason: "forbidden", surface: "sync-config" },
+    });
     throw forbidden();
   }
   if (!ws.instanceId) {

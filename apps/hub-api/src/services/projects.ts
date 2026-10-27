@@ -12,6 +12,7 @@ import {
   requireTenantAdmin,
   requireTenantMember,
 } from "./tenants.js";
+import { abortLiveSessions } from "./session-lifecycle.js";
 import { findOrCreateUserByEmail, getTenantMembership, getUserOrThrow } from "./users.js";
 
 const DEFAULT_SETTINGS = {
@@ -243,6 +244,9 @@ export async function archiveProject(
     })
     .where(eq(projects.id, projectId))
     .returning();
+  if (archive) {
+    await abortLiveSessions(db, { projectId }, "project_archived");
+  }
   return getProject(db, updated!.id, userId, isPlatformAdmin);
 }
 
@@ -401,6 +405,11 @@ export async function removeProjectMember(
   if (existing.role === "owner") {
     await assertNotLastProjectOwner(db, projectId, targetUserId);
   }
+  await abortLiveSessions(
+    db,
+    { projectId, ownerUserId: targetUserId },
+    "member_removed",
+  );
   await db
     .delete(projectMemberships)
     .where(

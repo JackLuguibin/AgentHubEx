@@ -4,6 +4,7 @@ import { projectMemberships, projects, tenantMemberships, tenants, users } from 
 import type { TenantRole } from "@agenthub/auth";
 import type { Tenant } from "@agenthub/domain";
 import { conflict, forbidden, notFound } from "../errors.js";
+import { abortLiveSessions } from "./session-lifecycle.js";
 import { placeholderTenantDek } from "../lib/crypto.js";
 import { newId } from "../lib/id.js";
 import { toIso } from "../lib/time.js";
@@ -143,6 +144,9 @@ export async function setTenantStatus(db: Db, tenantId: string, status: "active"
     .where(eq(tenants.id, tenantId))
     .returning();
   if (!updated) throw notFound("Tenant not found");
+  if (status === "suspended") {
+    await abortLiveSessions(db, { tenantId }, "tenant_suspended");
+  }
   return mapTenant(updated);
 }
 
@@ -282,6 +286,7 @@ export async function removeTenantMember(db: Db, tenantId: string, userId: strin
     await assertNotLastOwner(db, tenantId, userId);
   }
 
+  await abortLiveSessions(db, { tenantId, ownerUserId: userId }, "member_removed");
   // project_memberships cascade via FK on tenant_memberships delete
   await db
     .delete(tenantMemberships)

@@ -9,6 +9,8 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
+    "test:integration": "pnpm --filter @agenthub/hub-api test",
+    "test:e2e": "pnpm --filter @agenthub/hub-shell test",
     "lint": "turbo run lint",
     "db:generate": "pnpm --filter @agenthub/db generate",
     "db:migrate": "pnpm --filter @agenthub/db migrate",

@@ -4,27 +4,28 @@ overview: 多租户上下文隔离 + 停用/归档门禁 + 凭据不落浏览器
 todos:
   - id: idor-tests
     content: 集成测 IDOR 矩阵：跨用户/跨租户 session/workspace/反代 → 404
-    status: pending
+    status: completed
   - id: lifecycle-gates
     content: 租户 suspended / 项目 archived 阻断会话并 abort（A13/A14）
-    status: pending
+    status: completed
   - id: cred-never-leak
     content: 审计 GET 凭据无 secret；前端无 Provider Key 持久化（A7）
-    status: pending
+    status: completed
   - id: quota-sse-cases
     content: 覆盖 QUOTA_EXCEEDED 与 SSE_CURSOR_STALE（A15/A16）
-    status: pending
+    status: completed
   - id: intranet-n1n4
     content: 按 18.7 执行 N1–N4；Worker allowlist + allowedProviderHosts
-    status: pending
+    status: completed
   - id: a1a16-checklist
     content: 跑通/记录 13.4 A1–A16 清单；失败项建跟踪
-    status: pending
+    status: completed
   - id: dod-mvp
     content: DoD：A1–A16 与 N1–N4 全通过或豁免已文档化
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P1-08 隔离测试与 MVP 验收
 
 > **索引 todo**：`phase1-isolation-test` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)
