@@ -451,40 +451,42 @@ export function BoardPage() {
 
       {view === "board" ? (
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-          <div className={ui.boardGrid}>
-            {BOARD_COLUMNS.map((column) => (
-              <BoardColumn
-                key={column.status}
-                status={column.status}
-                label={column.label}
-                color={column.color}
-                issues={byStatus(column.status)?.items ?? []}
-                total={byStatus(column.status)?.total ?? 0}
-                canWrite={canWrite}
-                projectId={projectId}
-                onOpen={openDetail}
-                onCreate={
-                  column.status === "todo" || column.status === "in_progress"
-                    ? () => {
-                        setCreateTitle("");
-                        setCreateDescription("");
-                        setCreatePriority("P2");
-                        setCreateOpen(true);
-                      }
-                    : undefined
-                }
-              />
-            ))}
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
+            <div className={ui.boardGrid}>
+              {BOARD_COLUMNS.map((column) => (
+                <BoardColumn
+                  key={column.status}
+                  status={column.status}
+                  label={column.label}
+                  color={column.color}
+                  issues={byStatus(column.status)?.items ?? []}
+                  total={byStatus(column.status)?.total ?? 0}
+                  canWrite={canWrite}
+                  projectId={projectId}
+                  onOpen={openDetail}
+                  onCreate={
+                    column.status === "todo" || column.status === "in_progress"
+                      ? () => {
+                          setCreateTitle("");
+                          setCreateDescription("");
+                          setCreatePriority("P2");
+                          setCreateOpen(true);
+                        }
+                      : undefined
+                  }
+                />
+              ))}
+            </div>
+            <CancelledLane
+              open={cancelledOpen}
+              total={cancelled?.total ?? 0}
+              issues={cancelled?.items ?? []}
+              canWrite={canWrite}
+              projectId={projectId}
+              onToggle={() => setCancelledOpen((value) => !value)}
+              onOpen={openDetail}
+            />
           </div>
-          <CancelledLane
-            open={cancelledOpen}
-            total={cancelled?.total ?? 0}
-            issues={cancelled?.items ?? []}
-            canWrite={canWrite}
-            projectId={projectId}
-            onToggle={() => setCancelledOpen((value) => !value)}
-            onOpen={openDetail}
-          />
         </DndContext>
       ) : (
         <IssueTable issues={flat} onOpen={openDetail} />
@@ -724,26 +726,28 @@ function BoardColumn({
         {label}
         <span className={ui.boardCount}>{total}</span>
       </div>
-      {issues.map((issue) => (
-        <IssueCard
-          key={issue.id}
-          issue={issue}
-          projectId={projectId}
-          canWrite={canWrite}
-          onOpen={onOpen}
-        />
-      ))}
-      {onCreate ? (
-        <button
-          type="button"
-          className={cn(ui.boardAdd, "inline-flex items-center gap-1", canWrite && "cursor-pointer text-[#667085]")}
-          disabled={!canWrite}
-          onClick={onCreate}
-        >
-          <Icon icon={Plus} size="xs" />
-          添加问题
-        </button>
-      ) : null}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {issues.map((issue) => (
+          <IssueCard
+            key={issue.id}
+            issue={issue}
+            projectId={projectId}
+            canWrite={canWrite}
+            onOpen={onOpen}
+          />
+        ))}
+        {onCreate ? (
+          <button
+            type="button"
+            className={cn(ui.boardAdd, "inline-flex items-center gap-1", canWrite && "cursor-pointer text-[#667085]")}
+            disabled={!canWrite}
+            onClick={onCreate}
+          >
+            <Icon icon={Plus} size="xs" />
+            添加问题
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -767,7 +771,7 @@ function CancelledLane({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: columnId("cancelled") });
   return (
-    <section ref={setNodeRef} className={cn("mt-3", isOver && "rounded-lg ring-2 ring-[#8ca2f1]")}>
+    <section ref={setNodeRef} className={cn("shrink-0", isOver && "rounded-lg ring-2 ring-[#8ca2f1]")}>
       <button type="button" className="text-[11px] text-[#667085]" onClick={onToggle}>
         {open ? "收起" : "展开"}已取消（{total}）
       </button>

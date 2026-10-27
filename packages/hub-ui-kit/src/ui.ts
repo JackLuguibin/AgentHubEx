@@ -53,8 +53,10 @@ export const ui = {
   viewToggleBtn:
     "inline-flex cursor-pointer items-center gap-1 rounded-[5px] border-0 bg-transparent px-[11px] py-[7px] text-[10px] text-[#667085]",
   viewToggleBtnActive: "bg-white font-[550] text-[#344054] shadow-[0_1px_2px_#1018280a]",
-  boardGrid: "grid min-w-0 grid-cols-1 gap-3.5 min-[681px]:grid-cols-2 min-[1101px]:grid-cols-4",
-  boardColumn: "min-h-[280px] rounded-[9px] border border-[#e4e7ec] bg-[#eef1f5] p-3",
+  boardGrid:
+    "grid min-h-0 min-w-0 flex-1 auto-rows-fr grid-cols-1 gap-3.5 min-[681px]:grid-cols-2 min-[1101px]:grid-cols-4",
+  boardColumn:
+    "flex h-full min-h-[280px] flex-col overflow-hidden rounded-[9px] border border-[#e4e7ec] bg-[#eef1f5] p-3",
   boardColumnHead: "mb-3.5 mt-[3px] ml-px flex items-center gap-[7px] text-[11px] font-semibold text-[#344054]",
   boardCount: "ml-0.5 text-[10px] font-normal text-[#667085]",
   boardDot: "inline-block h-1.5 w-1.5 rounded-full bg-[#12a16f]",
