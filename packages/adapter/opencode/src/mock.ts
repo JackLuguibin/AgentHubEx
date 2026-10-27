@@ -22,9 +22,17 @@ type SessionState = {
   bus: EventEmitter;
   /** Ring buffer so a late SSE subscriber still sees recent deltas. */
   recent: PartialEnvelope[];
+  aborted: boolean;
+  credential: { provider: string; secret: string; baseUrl?: string } | null;
+  pending:
+    | {
+        resolve: (decision: "allow" | "deny" | "always") => void;
+      }
+    | null;
 };
 
 const sessions = new Map<string, SessionState>();
+const mcpByBase = new Map<string, Set<string>>();
 
 function emit(state: SessionState, sessionRef: string, type: EnvelopeType, data: unknown) {
   const evt: PartialEnvelope = {
@@ -39,9 +47,21 @@ function emit(state: SessionState, sessionRef: string, type: EnvelopeType, data:
   state.bus.emit("event", evt);
 }
 
+function waitForPermission(state: SessionState) {
+  return new Promise<"allow" | "deny" | "always">((resolve) => {
+    state.pending = { resolve };
+  });
+}
+
 async function streamReply(sessionRef: string, userText: string) {
   const state = sessions.get(sessionRef);
   if (!state) return;
+
+  if (/abort/i.test(userText)) {
+    emit(state, sessionRef, "session.status", { status: "busy" });
+    while (!state.aborted) await new Promise((resolve) => setTimeout(resolve, 15));
+    return;
+  }
 
   const messageId = randomUUID();
   emit(state, sessionRef, "session.status", { status: "busy" });
@@ -58,25 +78,37 @@ async function streamReply(sessionRef: string, userText: string) {
     output: "mock: README.md",
     isError: false,
   });
+
   if (/权限|permission/i.test(userText)) {
+    const reqId = randomUUID();
     emit(state, sessionRef, "permission_request", {
-      reqId: randomUUID(),
+      reqId,
       tool: "bash",
       input: { command: "ls" },
-      options: ["allow", "deny"],
+      options: ["allow", "deny", "always"],
     });
+    const decision = await waitForPermission(state);
+    state.pending = null;
+    emit(state, sessionRef, "permission_resolved", { reqId, decision });
+    if (decision === "deny" || state.aborted) {
+      emit(state, sessionRef, "result", { stopReason: "permission_denied" });
+      emit(state, sessionRef, "session.status", { status: "idle" });
+      return;
+    }
   }
+
+  if (state.aborted) return;
 
   const reply =
     userText.trim().length === 0
       ? "（空消息）这是 Hub mock runtime 的占位回复。"
       : `收到：${userText}\n\n—— 来自内网 mock runtime（非公网 LLM）。`;
 
-  const chunkSize = 8;
+  const chunkSize = 24;
   for (let i = 0; i < reply.length; i += chunkSize) {
+    if (state.aborted) return;
     const text = reply.slice(i, i + chunkSize);
     emit(state, sessionRef, "assistant.delta", { messageId, text });
-    await new Promise((r) => setTimeout(r, 40));
   }
 
   emit(state, sessionRef, "assistant.message", { messageId, text: reply });
@@ -86,6 +118,13 @@ async function streamReply(sessionRef: string, userText: string) {
     parts: [{ type: "text", text: reply }],
     createdAt: new Date().toISOString(),
   });
+  if (/model/i.test(userText)) {
+    emit(state, sessionRef, "usage", {
+      model: state.credential ? `mock:${state.credential.provider}` : "mock-unscoped",
+      inputTokens: 3,
+      outputTokens: reply.length,
+    });
+  }
   emit(state, sessionRef, "result", { stopReason: "end_turn", summary: "mock complete" });
   emit(state, sessionRef, "session.status", { status: "idle" });
 }
@@ -116,6 +155,9 @@ export const mockOpencodeAdapter: RuntimeAdapter = {
       messages: [],
       bus: new EventEmitter(),
       recent: [],
+      aborted: false,
+      credential: null,
+      pending: null,
     });
     return { ref };
   },
@@ -140,6 +182,9 @@ export const mockOpencodeAdapter: RuntimeAdapter = {
   async abort(_i, ref) {
     const state = sessions.get(ref);
     if (!state) return;
+    state.aborted = true;
+    state.pending?.resolve("deny");
+    state.pending = null;
     emit(state, ref, "session.status", { status: "idle", reason: "aborted" });
   },
 
@@ -148,8 +193,49 @@ export const mockOpencodeAdapter: RuntimeAdapter = {
     return { items: state?.messages ?? [], nextCursor: null };
   },
 
-  async respondPermission() {
-    /* mock: no-op */
+  async respondPermission(_i, ref, _reqId, decision) {
+    const state = sessions.get(ref);
+    state?.pending?.resolve(decision);
+  },
+
+  async setCredential(i, cred, scope) {
+    const state = scope?.sessionRef ? sessions.get(scope.sessionRef) : undefined;
+    if (state) {
+      state.credential = {
+        provider: cred.provider,
+        secret: cred.secret,
+        ...(cred.baseUrl ? { baseUrl: cred.baseUrl } : {}),
+      };
+    }
+    const bucket = mcpByBase.get(i.baseUrl) ?? new Set<string>();
+    mcpByBase.set(i.baseUrl, bucket);
+  },
+
+  async clearCredential(_i, provider) {
+    for (const state of sessions.values()) {
+      if (state.credential?.provider === provider) state.credential = null;
+    }
+  },
+
+  async applyApiOps(i, ops) {
+    const bucket = mcpByBase.get(i.baseUrl) ?? new Set<string>();
+    const applied: string[] = [];
+    for (const op of ops) {
+      if (op.op === "mcp.add") {
+        bucket.add(op.name);
+        applied.push(op.name);
+      } else {
+        applied.push(op.path);
+      }
+    }
+    mcpByBase.set(i.baseUrl, bucket);
+    return { ok: true, applied };
+  },
+
+  async verifyConfig(i, expected) {
+    const mcp = [...(mcpByBase.get(i.baseUrl) ?? [])];
+    const wanted = expected.mcp ?? [];
+    return { ok: wanted.every((name) => mcp.includes(name)), mcp };
   },
 
   async *events(_i, filter, signal) {

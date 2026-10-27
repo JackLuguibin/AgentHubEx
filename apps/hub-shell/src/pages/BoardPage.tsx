@@ -115,6 +115,7 @@ export function BoardPage() {
   const [sessionIssue, setSessionIssue] = useState<Issue | null>(null);
   const [prompt, setPrompt] = useState("");
   const [credential, setCredential] = useState("");
+  const [engine, setEngine] = useState<"opencode" | "claude">("opencode");
   const [creating, setCreating] = useState(false);
   const [sessionBusy, setSessionBusy] = useState(false);
 
@@ -624,7 +625,7 @@ export function BoardPage() {
                 try {
                   const session = await api.createSession(projectId, {
                     title: sessionTitleForIssue(sessionIssue),
-                    runtimeType: "opencode",
+                    runtimeType: engine,
                     credentialSource: source as "user" | "project",
                     credentialId: id,
                     issueId: sessionIssue.id,
@@ -645,9 +646,14 @@ export function BoardPage() {
         }
       >
         <div className="grid gap-3">
-          <Field label="引擎" hint="当前只支持 OpenCode。">
-            <Select variant="field" value="opencode" onChange={() => undefined}>
+          <Field label="引擎" hint="Claude 不提供文件树和终端，工作台会按能力隐藏。">
+            <Select
+              variant="field"
+              value={engine}
+              onChange={(event) => setEngine(event.target.value as "opencode" | "claude")}
+            >
               <option value="opencode">OpenCode</option>
+              <option value="claude">Claude</option>
             </Select>
           </Field>
           <Field label="凭据">

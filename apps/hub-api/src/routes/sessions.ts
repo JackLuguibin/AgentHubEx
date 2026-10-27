@@ -10,7 +10,7 @@ import {
   WorkspaceSchema,
 } from "@agenthub/domain";
 import { makeEnvelope, type Envelope } from "@agenthub/runtime-contract";
-import { opencodeAdapter } from "@agenthub/adapter-opencode";
+import { adapterFor } from "../services/runtime-adapter.js";
 import type { AppEnv } from "../context.js";
 import type { HubRuntime } from "../lib/hub-runtime.js";
 import { startOwnedWorkspace, stopOwnedWorkspace } from "../services/scheduler.js";
@@ -68,7 +68,10 @@ function runtimeOf(env: AppEnv["Variables"]["env"], redis: AppEnv["Variables"]["
     redis,
     nodeCaDir: env.NODE_CA_DIR,
     minAgentVersion: env.MIN_AGENT_VERSION,
-    workerImage: env.WORKER_OPENCODE_IMAGE,
+    workerImages: {
+      opencode: env.WORKER_OPENCODE_IMAGE,
+      claude: env.WORKER_CLAUDE_IMAGE,
+    },
   };
 }
 
@@ -407,7 +410,7 @@ export function sessionRoutes() {
       const { sessionId } = c.req.valid("param");
       const p = c.get("principal")!;
       const env = c.get("env");
-      const { ctx, runtimeSessionRef } = await loadSessionRuntime(
+      const { ctx, runtimeSessionRef, session } = await loadSessionRuntime(
         c.get("db"),
         sessionId,
         p.userId,
@@ -415,7 +418,7 @@ export function sessionRoutes() {
         env.PLATFORM_DEK,
         env.RUNTIME_MOCK,
       );
-      const page = await opencodeAdapter.listMessages(ctx, runtimeSessionRef, {});
+      const page = await adapterFor(session.runtimeType).listMessages(ctx, runtimeSessionRef, {});
       return c.json(page, 200);
     },
   );
@@ -483,7 +486,7 @@ export function sessionRoutes() {
             }
           }
 
-          for await (const partial of opencodeAdapter.events(
+          for await (const partial of adapterFor(session.runtimeType).events(
             ctx,
             { sessionRef: runtimeSessionRef },
             abort.signal,

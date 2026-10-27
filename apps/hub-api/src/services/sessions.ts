@@ -13,8 +13,8 @@ import {
 } from "@agenthub/db";
 import { can, effectiveProjectRole, type ProjectRole } from "@agenthub/auth";
 import type { AgentSession, CreateSessionReqSchema } from "@agenthub/domain";
-import { opencodeAdapter } from "@agenthub/adapter-opencode";
-import { DEFAULT_CAPABILITIES, type InstanceCtx } from "@agenthub/runtime-contract";
+import { DEFAULT_CAPABILITIES, capabilitiesForRuntime, type InstanceCtx } from "@agenthub/runtime-contract";
+import { adapterFor } from "./runtime-adapter.js";
 import type { z } from "zod";
 import { AppError, conflict, forbidden, notFound } from "../errors.js";
 import { applySessionIssueLink, prepareSessionIssue } from "./issues.js";
@@ -339,10 +339,10 @@ async function ensureMockOrBoundInstance(
     .values({
       id,
       tenantId,
-      name: "local-mock-opencode",
+      name: `local-mock-${runtimeType}`,
       mode: "external",
       runtimeType,
-      baseUrl: "mock://opencode",
+      baseUrl: `mock://${runtimeType}`,
       tlsVerify: false,
       isolation: "shared",
       labels: { mock: "true" },
@@ -624,9 +624,6 @@ export async function createSession(
   };
   const runtimeType =
     input.runtimeType ?? projectSettings.defaultRuntimeType ?? "opencode";
-  if (runtimeType !== "opencode") {
-    throw conflict("Only opencode runtime is supported in P0");
-  }
 
   const role = effectiveProjectRole(access.projectRole, access.tenantRole);
   const canUseProject = can(access.projectRole, access.tenantRole, "credential.project.use", {
@@ -660,7 +657,7 @@ export async function createSession(
     : null;
 
   const ctx = toInstanceCtx(instance, runtime.platformDek, runtime.runtimeMock);
-  const { ref } = await opencodeAdapter.createSession(ctx, {
+  const { ref } = await adapterFor(runtimeType).createSession(ctx, {
     title: input.title,
     agent: input.agent,
   });
@@ -770,7 +767,7 @@ export async function abortSession(
     platformDek,
     runtimeMock,
   );
-  await opencodeAdapter.abort(loaded.ctx, loaded.runtimeSessionRef);
+  await adapterFor(loaded.session.runtimeType).abort(loaded.ctx, loaded.runtimeSessionRef);
   const [updated] = await db
     .update(agentSessions)
     .set({ status: "aborted", statusReason: "aborted", updatedAt: new Date() })
@@ -797,7 +794,7 @@ export async function respondSessionPermission(
     platformDek,
     runtimeMock,
   );
-  await opencodeAdapter.respondPermission(
+  await adapterFor(loaded.session.runtimeType).respondPermission(
     loaded.ctx,
     loaded.runtimeSessionRef,
     reqId,
@@ -856,7 +853,7 @@ export async function sendMessage(
 
   const ctx = toInstanceCtx(inst, runtime.platformDek, runtime.runtimeMock);
   const messageId = newId();
-  await opencodeAdapter.sendMessage(ctx, row.runtimeSessionRef, {
+  await adapterFor(row.runtimeType).sendMessage(ctx, row.runtimeSessionRef, {
     parts: input.parts as never,
     model: input.model ?? row.model ?? undefined,
     agent: input.agent ?? row.agent ?? undefined,
@@ -904,14 +901,20 @@ export async function getWorkspaceMe(
   const ws = placed.workspace;
 
   const ctx = toInstanceCtx(instance, runtime.platformDek, runtime.runtimeMock);
-  const capabilities = await opencodeAdapter.capabilities(ctx).catch(() => ({
-    ...DEFAULT_CAPABILITIES,
-    files: true,
-    find: true,
-    streaming: true,
-    abort: true,
-    permissions: true,
-  }));
+  const capabilities = await adapterFor(runtimeType)
+    .capabilities(ctx)
+    .catch(() =>
+      runtimeType === "claude"
+        ? capabilitiesForRuntime("claude")
+        : {
+            ...DEFAULT_CAPABILITIES,
+            files: true,
+            find: true,
+            streaming: true,
+            abort: true,
+            permissions: true,
+          },
+    );
   const [tenantRow] = await db
     .select({ settings: tenants.settings })
     .from(tenants)

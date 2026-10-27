@@ -332,6 +332,7 @@ export function Workbench({
     try {
       const session = await client.createSession(projectId, {
         title: "新会话",
+        runtimeType: workspace?.runtimeType,
         credentialSource: picked.source,
         credentialId: picked.id,
       });

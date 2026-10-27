@@ -9,7 +9,7 @@ export const WORKER_UID = "10001:10001";
 export const WORKER_NETWORK = "agenthub-ws";
 
 const IMAGE_RE =
-  /^agenthub\/worker-opencode((:[A-Za-z0-9._-]+)|(@sha256:[a-f0-9]{64}))?$/;
+  /^agenthub\/worker-(opencode|claude)((:[A-Za-z0-9._-]+)|(@sha256:[a-f0-9]{64}))?$/;
 
 export type ContainerCreateInput = {
   workspaceId: string;
@@ -50,7 +50,7 @@ export type ContainerCreateOptions = {
 /** Docker create options for one managed workspace. Never mounts docker.sock. */
 export function buildContainerCreateOptions(input: ContainerCreateInput): ContainerCreateOptions {
   if (!IMAGE_RE.test(input.image)) {
-    throw new Error(`refusing image ${input.image}; expected agenthub/worker-opencode`);
+    throw new Error(`refusing image ${input.image}; expected agenthub/worker-opencode or agenthub/worker-claude`);
   }
   const binds = [`${input.volumePath}:/workspace`, `${input.commonPath}:/project-common:ro`];
   for (const bind of binds) {

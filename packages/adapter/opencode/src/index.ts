@@ -167,15 +167,30 @@ const liveAdapter: RuntimeAdapter = {
       }
 
       const mapped = mapLiveEvent(parsed.type ?? frame.event ?? "unknown", props);
-      if (!mapped) continue;
-      yield {
-        v: 1 as const,
-        ts: new Date().toISOString(),
-        type: mapped.type,
-        data: mapped.data,
-        sessionRef: sessionID || filter.sessionRef,
-        raw: parsed,
-      } satisfies PartialEnvelope;
+      for (const item of mapped) {
+        yield {
+          v: 1 as const,
+          ts: new Date().toISOString(),
+          type: item.type,
+          data: item.data,
+          sessionRef: sessionID || filter.sessionRef,
+          raw: parsed,
+        } satisfies PartialEnvelope;
+      }
+    }
+  },
+
+  async setCredential(i, cred) {
+    const res = await upstreamFetch(i, `/auth/${encodeURIComponent(cred.provider)}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        type: "api",
+        key: cred.secret,
+        ...(cred.baseUrl ? { baseURL: cred.baseUrl } : {}),
+      }),
+    });
+    if (!res.ok) {
+      throw new AdapterError("UPSTREAM_UNAVAILABLE", `setCredential failed: ${res.status}`);
     }
   },
 };
@@ -183,48 +198,125 @@ const liveAdapter: RuntimeAdapter = {
 function mapLiveEvent(
   type: string,
   props: Record<string, unknown>,
-): { type: EnvelopeType; data: Envelope["data"] } | null {
-  if (type === "session.idle" || type === "session.status") {
-    const status =
-      type === "session.idle"
-        ? "idle"
-        : ((props.status as "busy" | "idle" | "error") ?? "idle");
-    return { type: "session.status", data: { status } };
+): Array<{ type: EnvelopeType; data: Envelope["data"] }> {
+  if (type === "session.idle") {
+    return [
+      { type: "session.status", data: { status: "idle" } },
+      { type: "result", data: { stopReason: "idle" } },
+    ];
+  }
+  if (type === "session.status") {
+    const status = (props.status as "busy" | "idle" | "error") ?? "idle";
+    return [{ type: "session.status", data: { status } }];
   }
   if (type === "message.part.updated") {
-    const part = props.part as { type?: string; text?: string; id?: string } | undefined;
+    const part = props.part as
+      | {
+          type?: string;
+          text?: string;
+          id?: string;
+          tool?: string;
+          name?: string;
+          input?: unknown;
+          state?: { status?: string; output?: unknown; error?: unknown };
+        }
+      | undefined;
     if (part?.type === "text" && typeof part.text === "string") {
-      return {
-        type: "assistant.delta",
-        data: {
-          messageId: String(props.messageID ?? part.id ?? "unknown"),
-          text: part.text,
+      return [
+        {
+          type: "assistant.delta",
+          data: {
+            messageId: String(props.messageID ?? part.id ?? "unknown"),
+            text: part.text,
+          },
         },
-      };
+      ];
+    }
+    if (part?.type === "tool") {
+      const status = part.state?.status;
+      const toolId = String(part.id ?? "tool");
+      const name = String(part.tool ?? part.name ?? "tool");
+      if (status === "running") {
+        return [{ type: "tool_call", data: { toolId, name, input: part.input ?? {} } }];
+      }
+      if (status === "completed" || status === "error") {
+        return [
+          {
+            type: "tool_result",
+            data: {
+              toolId,
+              output: status === "error" ? part.state?.error : part.state?.output,
+              isError: status === "error",
+            },
+          },
+        ];
+      }
     }
   }
   if (type === "message.updated") {
-    const info = props.info as { role?: string; id?: string } | undefined;
+    const info = props.info as {
+      role?: string;
+      id?: string;
+      modelID?: string;
+      tokens?: { input?: number; output?: number; cache?: { read?: number } };
+      cost?: number;
+    } | undefined;
+    const out: Array<{ type: EnvelopeType; data: Envelope["data"] }> = [];
     if (info?.role === "assistant") {
-      return {
+      out.push({
         type: "assistant.message",
         data: {
           messageId: String(info.id ?? "unknown"),
           text: String((props as { text?: string }).text ?? ""),
         },
-      };
+      });
+      if (info.tokens) {
+        out.push({
+          type: "usage",
+          data: {
+            model: String(info.modelID ?? "opencode"),
+            inputTokens: info.tokens.input ?? 0,
+            outputTokens: info.tokens.output ?? 0,
+            ...(info.tokens.cache?.read != null ? { cacheRead: info.tokens.cache.read } : {}),
+            ...(info.cost != null ? { cost: info.cost } : {}),
+          },
+        });
+      }
     }
+    return out;
+  }
+  if (type === "permission.asked" || type === "permission.updated") {
+    const fallback = ["allow", "deny", "always"] as Array<"allow" | "deny" | "always">;
+    const options = Array.isArray(props.options)
+      ? props.options.filter(
+          (item): item is "allow" | "deny" | "always" =>
+            item === "allow" || item === "deny" || item === "always",
+        )
+      : fallback;
+    return [
+      {
+        type: "permission_request",
+        data: {
+          reqId: String(props.id ?? props.requestID ?? "permission"),
+          tool: String(props.permission ?? props.tool ?? "tool"),
+          input: props.input ?? props.patterns ?? {},
+          options: options.length > 0 ? options : fallback,
+        },
+      },
+    ];
   }
   if (type === "session.error") {
-    return {
-      type: "error",
-      data: {
-        code: "UPSTREAM_ERROR",
-        message: String(props.message ?? "Upstream error"),
+    return [
+      {
+        type: "error",
+        data: {
+          code: "UPSTREAM_ERROR",
+          message: String(props.message ?? "Upstream error"),
+        },
       },
-    };
+    ];
   }
-  return null;
+  return [];
 }
 
 export const opencodeAdapter: RuntimeAdapter = {
@@ -266,6 +358,36 @@ export const opencodeAdapter: RuntimeAdapter = {
     return isMockInstance(i)
       ? mockOpencodeAdapter.events(i, filter, signal)
       : liveAdapter.events(i, filter, signal);
+  },
+  setCredential(i, cred, scope) {
+    if (isMockInstance(i)) {
+      if (!mockOpencodeAdapter.setCredential) {
+        return Promise.reject(new AdapterError("NOT_SUPPORTED", "OpenCode credential injection is unavailable"));
+      }
+      return mockOpencodeAdapter.setCredential(i, cred, scope);
+    }
+    if (!liveAdapter.setCredential) {
+      return Promise.reject(new AdapterError("NOT_SUPPORTED", "OpenCode credential injection is unavailable"));
+    }
+    return liveAdapter.setCredential(i, cred, scope);
+  },
+  clearCredential(i, provider) {
+    if (!isMockInstance(i) || !mockOpencodeAdapter.clearCredential) {
+      return Promise.reject(new AdapterError("NOT_SUPPORTED", "OpenCode credential clear is unavailable"));
+    }
+    return mockOpencodeAdapter.clearCredential(i, provider);
+  },
+  applyApiOps(i, ops) {
+    if (!isMockInstance(i) || !mockOpencodeAdapter.applyApiOps) {
+      return Promise.reject(new AdapterError("NOT_SUPPORTED", "OpenCode apply is unavailable"));
+    }
+    return mockOpencodeAdapter.applyApiOps(i, ops);
+  },
+  verifyConfig(i, expected) {
+    if (!isMockInstance(i) || !mockOpencodeAdapter.verifyConfig) {
+      return Promise.reject(new AdapterError("NOT_SUPPORTED", "OpenCode verify is unavailable"));
+    }
+    return mockOpencodeAdapter.verifyConfig(i, expected);
   },
 };
 

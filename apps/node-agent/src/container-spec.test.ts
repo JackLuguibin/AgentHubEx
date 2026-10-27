@@ -34,6 +34,22 @@ describe("worker container spec", () => {
     expect(spec.Env.some((item) => item.startsWith("BOOT_TOKEN="))).toBe(true);
   });
 
+  it("accepts the claude worker image", () => {
+    const spec = buildContainerCreateOptions({
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      tenantId: "22222222-2222-4222-8222-222222222222",
+      projectId: "33333333-3333-4333-8333-333333333333",
+      userId: "44444444-4444-4444-8444-444444444444",
+      image: "agenthub/worker-claude",
+      resources: { cpu: 2, memMb: 4096, diskGb: 20 },
+      bootToken: "boot-token-value",
+      volumePath: "/var/lib/agenthub/ws",
+      commonPath: "/var/lib/agenthub/common",
+      bindIp: "127.0.0.1",
+    });
+    expect(spec.Image).toBe("agenthub/worker-claude");
+  });
+
   it("rejects a non-worker image", () => {
     expect(() =>
       buildContainerCreateOptions({

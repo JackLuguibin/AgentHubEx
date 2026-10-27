@@ -431,7 +431,7 @@ export function ProjectsPage() {
               readOnly={Boolean(editing)}
             />
           </Field>
-          <Field label="运行引擎">
+          <Field label="运行引擎" hint="选 Claude 时，工作台会隐藏文件树和终端。">
             <Select
               variant="field"
               value={form.defaultRuntimeType}
@@ -443,9 +443,7 @@ export function ProjectsPage() {
               }
             >
               <option value="opencode">OpenCode</option>
-              <option value="claude" disabled>
-                Claude · Phase 3
-              </option>
+              <option value="claude">Claude</option>
             </Select>
           </Field>
           <Field label="凭据策略" full>

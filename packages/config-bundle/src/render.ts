@@ -1,6 +1,6 @@
 import { withCommonWriteDeny } from "@agenthub/common-fs";
 import type { Manifest, SecretRef } from "@agenthub/domain";
-import { CLAUDE_PATHS, OPENCODE_PATHS } from "@agenthub/runtime-contract";
+import { CLAUDE_PATHS, OPENCODE_PATHS, mapBundleToClaudeOptions } from "@agenthub/runtime-contract";
 import { sha256Buffer } from "./hash.js";
 import { normalizeSkillFilePath } from "./paths.js";
 import { isSecretRef, secretPlaceholder } from "./secrets.js";
@@ -182,6 +182,25 @@ export function renderBundle(input: {
   } else {
     files.push(file(CLAUDE_PATHS.agentsMd, agentsMd ? `${agentsMd}\n` : ""));
     files.push(...skillFiles(manifest, input.blobs, CLAUDE_PATHS.skill));
+    const claudeOptions = mapBundleToClaudeOptions({
+      ...(manifest.model ? { model: manifest.model } : {}),
+      instructions: manifest.instructions,
+      agents: manifest.agents,
+      mcp: manifest.mcp
+        .filter((item) => item.enabled)
+        .map((item) => ({
+          name: item.name,
+          transport: item.transport,
+          ...(item.command ? { command: item.command } : {}),
+          ...(item.url ? { url: item.url } : {}),
+          ...(item.env ? { env: envForFile(item.env) } : {}),
+          ...(item.headers ? { headers: envForFile(item.headers) } : {}),
+          enabled: item.enabled,
+        })),
+      skills: manifest.skills.map((skill) => ({ name: skill.name })),
+      ...(manifest.permission ? { permission: manifest.permission } : {}),
+    });
+    apiOps.push({ op: "config.patch", path: "claudeOptions", value: claudeOptions });
     apiOps.push({
       op: "config.patch",
       path: "agents",

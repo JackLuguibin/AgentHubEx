@@ -6,5 +6,5 @@ export type HubRuntime = {
   redis: Redis;
   nodeCaDir: string;
   minAgentVersion: string;
-  workerImage: string;
+  workerImages: { opencode: string; claude: string };
 };

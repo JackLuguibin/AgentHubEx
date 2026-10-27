@@ -30,6 +30,41 @@ export const DEFAULT_CAPABILITIES: Capabilities = {
   usage: false,
 };
 
+/** OpenCode exposes the workbench file, search, and terminal surfaces. */
+export const OPENCODE_CAPABILITIES: Capabilities = {
+  v: 1,
+  files: true,
+  find: true,
+  lsp: false,
+  pty: true,
+  mcpRuntimeAdd: true,
+  permissions: true,
+  streaming: true,
+  abort: true,
+  usage: true,
+};
+
+/**
+ * Claude does not speak the OpenCode file, search, LSP, or PTY APIs.
+ * The workbench hides those panes when the flags are false.
+ */
+export const CLAUDE_CAPABILITIES: Capabilities = {
+  v: 1,
+  files: false,
+  find: false,
+  lsp: false,
+  pty: false,
+  mcpRuntimeAdd: true,
+  permissions: true,
+  streaming: true,
+  abort: true,
+  usage: true,
+};
+
+export function capabilitiesForRuntime(runtimeType: RuntimeType): Capabilities {
+  return runtimeType === "claude" ? CLAUDE_CAPABILITIES : OPENCODE_CAPABILITIES;
+}
+
 export type EnvelopeType =
   | "session.status"
   | "message.start"
@@ -106,6 +141,16 @@ export type InstanceCtx = {
 
 export type Health = { ok: boolean; latencyMs?: number; version?: string };
 
+export type RuntimeApiOp =
+  | { op: "mcp.add"; name: string; config: Record<string, unknown> }
+  | { op: "config.patch"; path: string; value: unknown };
+
+export type ApplyResult = { ok: boolean; applied: string[] };
+
+export type VerifyExpectation = { mcp?: string[] };
+
+export type VerifyResult = { ok: boolean; mcp: string[] };
+
 export interface RuntimeAdapter {
   readonly type: RuntimeType;
   health(i: InstanceCtx): Promise<Health>;
@@ -142,10 +187,12 @@ export interface RuntimeAdapter {
   ): AsyncIterable<Omit<Envelope, "seq" | "sessionId"> & { sessionRef?: string }>;
   setCredential?(
     i: InstanceCtx,
-    cred: { provider: string; secret: string },
+    cred: { provider: string; secret: string; baseUrl?: string },
     scope?: { sessionRef?: string },
   ): Promise<void>;
   clearCredential?(i: InstanceCtx, provider: string): Promise<void>;
+  applyApiOps?(i: InstanceCtx, ops: RuntimeApiOp[]): Promise<ApplyResult>;
+  verifyConfig?(i: InstanceCtx, expected: VerifyExpectation): Promise<VerifyResult>;
 }
 
 export const CapabilitiesSchema = z.object({
@@ -176,11 +223,24 @@ export const EnvelopeTypeSchema = z.enum([
 ]);
 
 export {
+  CLAUDE_BUNDLE_OPTION_MAP,
   CLAUDE_PATHS,
   MANAGED_MANIFEST_PATH,
   OPENCODE_PATHS,
+  classifyPermission,
   isAllowedManagedPath,
+  mapBundleToClaudeOptions,
 } from "./bundle-mapping.js";
+export type {
+  BundleMapInput,
+  ClaudeAgentOptions,
+  ClaudeMcpServer,
+  ClaudePermissionRule,
+} from "./bundle-mapping.js";
+
+export { mapClaudeSdkMessage } from "./claude-events.js";
+export type { MappedEvent } from "./claude-events.js";
+export { runConformance } from "./conformance.js";
 
 export function makeEnvelope<T extends EnvelopeType>(
   sessionId: string,

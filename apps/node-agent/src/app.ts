@@ -98,9 +98,6 @@ export function createNodeApp(deps: NodeAppDeps) {
     const parsed = CreateBody.safeParse(await c.req.json());
     if (!parsed.success) return fail(c, 400, "VALIDATION_FAILED", "invalid workspace spec");
     const body = parsed.data;
-    if (body.runtimeType !== "opencode") {
-      return fail(c, 400, "DOCKER_ERROR", "only the opencode worker image is available");
-    }
     await deps.docker.ensureNetwork();
     const volumePath = volumePathFor(
       deps.workspaceRoot,

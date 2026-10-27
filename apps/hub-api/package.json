@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@agenthub/adapter-opencode": "workspace:*",
+    "@agenthub/adapter-claude": "workspace:*",
     "@agenthub/auth": "workspace:*",
     "@agenthub/common-fs": "workspace:*",
     "@agenthub/config-bundle": "workspace:*",

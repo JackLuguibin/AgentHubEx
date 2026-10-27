@@ -234,10 +234,10 @@ export function OverviewPage() {
                 <Icon icon={Sparkles} size="sm" />
               </span>
               <div>
-                <div>Claude Agent SDK</div>
-                <small>Phase 3 规划</small>
+                <div>Claude</div>
+                <small>可选 · 没有文件树和终端时会自动隐藏</small>
               </div>
-              <span className={ui.badge}>规划中</span>
+              <span className={ui.badge}>可选</span>
             </div>
           </div>
 

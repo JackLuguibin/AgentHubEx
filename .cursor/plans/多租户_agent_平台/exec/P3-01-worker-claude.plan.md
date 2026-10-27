@@ -4,18 +4,19 @@ overview: apps/worker/claude 与 adapter/claude 对齐契约 + Bundle 映射。
 todos:
   - id: worker-claude
     content: 实现 apps/worker/claude + 镜像 agenthub/worker-claude
-    status: pending
+    status: completed
   - id: adapter-claude
     content: packages/adapter/claude 事件归一为 runtime-contract Envelope
-    status: pending
+    status: completed
   - id: bundle-map
     content: ConfigBundle→Claude 系统提示/工具白名单/MCP 桥映射表
-    status: pending
+    status: completed
   - id: dod-contract
     content: DoD：契约测试双引擎通过（11.8）
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P3-01 worker/claude
 
 > **索引 todo**：`phase3-worker-claude` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

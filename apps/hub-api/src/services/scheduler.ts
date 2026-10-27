@@ -137,9 +137,6 @@ export async function provisionManagedWorkspace(
     spec: { cpu: number; memMb: number; diskGb: number };
   },
 ): Promise<{ instance: InstanceRow; workspace: WorkspaceRow }> {
-  if (input.runtimeType !== "opencode") {
-    throw new AppError(501, "NOT_SUPPORTED_BY_RUNTIME", "Managed Claude workers are not available yet");
-  }
   const existing = await findWorkspace(db, input.projectId, input.userId, input.runtimeType);
   if (existing?.status === "revoked") throw new AppError(409, "WORKSPACE_NOT_READY", "Workspace was revoked");
   if (existing && (existing.status === "ready" || existing.status === "ready_degraded") && existing.instanceId) {
@@ -206,7 +203,8 @@ export async function provisionManagedWorkspace(
             projectId: input.projectId,
             userId: input.userId,
             runtimeType: input.runtimeType,
-            image: runtime.workerImage,
+            image:
+              input.runtimeType === "claude" ? runtime.workerImages.claude : runtime.workerImages.opencode,
             resources: input.spec,
             bootToken,
           },

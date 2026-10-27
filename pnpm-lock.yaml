@@ -51,6 +51,9 @@ importers:
 
   apps/hub-api:
     dependencies:
+      '@agenthub/adapter-claude':
+        specifier: workspace:*
+        version: link:../../packages/adapter/claude
       '@agenthub/adapter-opencode':
         specifier: workspace:*
         version: link:../../packages/adapter/opencode
@@ -210,6 +213,65 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.23.15
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.32.0)
+
+  apps/worker/claude:
+    dependencies:
+      '@agenthub/runtime-contract':
+        specifier: workspace:*
+        version: link:../../../packages/runtime-contract
+      '@agenthub/worker-common':
+        specifier: workspace:*
+        version: link:../common
+      '@hono/node-server':
+        specifier: ^1.13.7
+        version: 1.19.17(hono@4.13.14)
+      hono:
+        specifier: ^4.6.14
+        version: 4.13.14
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.5
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.32.0)
+
+  apps/worker/common:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.5
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.32.0)
+
+  packages/adapter/claude:
+    dependencies:
+      '@agenthub/adapter-common':
+        specifier: workspace:*
+        version: link:../common
+      '@agenthub/runtime-contract':
+        specifier: workspace:*
+        version: link:../../runtime-contract
+      '@agenthub/worker-claude':
+        specifier: workspace:*
+        version: link:../../../apps/worker/claude
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.5
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

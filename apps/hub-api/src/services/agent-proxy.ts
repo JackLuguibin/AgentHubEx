@@ -3,8 +3,7 @@ import { and, eq, ne } from "drizzle-orm";
 import type { Db } from "@agenthub/db";
 import { runtimeInstances, tenants, workspaces } from "@agenthub/db";
 import { can } from "@agenthub/auth";
-import { opencodeAdapter } from "@agenthub/adapter-opencode";
-import { DEFAULT_CAPABILITIES, type InstanceCtx } from "@agenthub/runtime-contract";
+import { DEFAULT_CAPABILITIES, capabilitiesForRuntime, type InstanceCtx } from "@agenthub/runtime-contract";
 import { AppError, forbidden, notFound } from "../errors.js";
 import {
   classifyAgentUpstreamPath,
@@ -13,6 +12,7 @@ import {
 } from "../lib/agent-allowlist.js";
 import { recordAudit, rethrowAccessDenied } from "../lib/audit.js";
 import { instanceRowToCtx } from "./instances.js";
+import { adapterFor } from "./runtime-adapter.js";
 import { resolveProjectAccess } from "./projects.js";
 import { issuePtyTicket, readUpstreamId, readUpstreamTicket, upstreamPtyUrl } from "./pty-bridge.js";
 
@@ -66,7 +66,7 @@ export async function proxyWorkspaceAgent(
   }
 
   const ctx = instanceRowToCtx(inst, platformDek);
-  if (decision === "pty" && !(await workspacePtyOpen(db, ws.tenantId, ctx))) {
+  if (decision === "pty" && !(await workspacePtyOpen(db, ws.tenantId, ctx, ws.runtimeType))) {
     throw new AppError(501, "NOT_SUPPORTED_BY_RUNTIME", "当前运行实例没有终端能力");
   }
   // RUNTIME_MOCK only supplies a fallback instance; real registered instances are always proxied.
@@ -214,13 +214,17 @@ function readEditableText(body: ArrayBuffer | undefined) {
   return content;
 }
 
-async function workspacePtyOpen(db: Db, tenantId: string, ctx: InstanceCtx) {
+async function workspacePtyOpen(db: Db, tenantId: string, ctx: InstanceCtx, runtimeType: string) {
   const [tenant] = await db
     .select({ settings: tenants.settings })
     .from(tenants)
     .where(eq(tenants.id, tenantId))
     .limit(1);
-  const capabilities = await opencodeAdapter.capabilities(ctx).catch(() => DEFAULT_CAPABILITIES);
+  const capabilities = await adapterFor(runtimeType)
+    .capabilities(ctx)
+    .catch(() =>
+      runtimeType === "claude" ? capabilitiesForRuntime("claude") : DEFAULT_CAPABILITIES,
+    );
   return ptyGateOpen(capabilities, tenant?.settings);
 }
 
@@ -320,7 +324,7 @@ export async function openWorkspacePty(
     platformDek,
     "pty",
   );
-  if (!(await workspacePtyOpen(db, ws.tenantId, ctx))) {
+  if (!(await workspacePtyOpen(db, ws.tenantId, ctx, ws.runtimeType))) {
     throw new AppError(501, "NOT_SUPPORTED_BY_RUNTIME", "当前运行实例没有终端能力");
   }
   if (ctx.mock) {
