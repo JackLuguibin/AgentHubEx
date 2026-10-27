@@ -1,4 +1,4 @@
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 import type { Db } from "@agenthub/db";
 import {
   agentSessions,
@@ -19,6 +19,7 @@ import { AppError, conflict, forbidden, notFound } from "../errors.js";
 import { decryptSecret, encryptSecret } from "../lib/crypto.js";
 import { newId } from "../lib/id.js";
 import { toIso } from "../lib/time.js";
+import { assertInstanceHealthyForConfig } from "./instances.js";
 import { resolveProjectAccess } from "./projects.js";
 import { assertTenantActive } from "./tenants.js";
 
@@ -155,15 +156,77 @@ async function resolveCredential(
   });
 }
 
+type InstanceRow = typeof runtimeInstances.$inferSelect;
+
+/** ADR-013: a dedicated instance serves at most one (project, user) workspace. */
+async function isDedicatedOccupiedByOther(
+  db: Db,
+  inst: InstanceRow,
+  projectId: string,
+  userId: string,
+) {
+  if (inst.isolation !== "dedicated") return false;
+  const holders = await db
+    .select({ projectId: workspaces.projectId, ownerUserId: workspaces.ownerUserId })
+    .from(workspaces)
+    .where(and(eq(workspaces.instanceId, inst.id), ne(workspaces.status, "deleted")));
+  return holders.some((h) => h.projectId !== projectId || h.ownerUserId !== userId);
+}
+
+function labelsMatch(labels: unknown, selector: Record<string, string>) {
+  const l = (labels ?? {}) as Record<string, string>;
+  return Object.entries(selector).every(([k, v]) => l[k] === v);
+}
+
 async function ensureMockOrBoundInstance(
   db: Db,
   tenantId: string,
   projectId: string,
+  userId: string,
   runtimeType: "opencode" | "claude",
   runtimeMock: boolean,
   platformDek: string,
 ) {
-  const [binding] = await db
+  const usable = async (inst: InstanceRow | undefined) =>
+    Boolean(inst) &&
+    inst!.tenantId === tenantId &&
+    inst!.runtimeType === runtimeType &&
+    inst!.healthStatus !== "disabled" &&
+    !(await isDedicatedOccupiedByOther(db, inst!, projectId, userId));
+
+  // Sticky: keep the instance the user's workspace already runs on.
+  const [ownWs] = await db
+    .select({ instanceId: workspaces.instanceId })
+    .from(workspaces)
+    .where(
+      and(
+        eq(workspaces.projectId, projectId),
+        eq(workspaces.ownerUserId, userId),
+        eq(workspaces.runtimeType, runtimeType),
+        ne(workspaces.status, "deleted"),
+      ),
+    )
+    .limit(1);
+  if (ownWs?.instanceId) {
+    const [inst] = await db
+      .select()
+      .from(runtimeInstances)
+      .where(eq(runtimeInstances.id, ownWs.instanceId))
+      .limit(1);
+    if (await usable(inst)) return inst!;
+  }
+
+  const tenantInstances = await db
+    .select()
+    .from(runtimeInstances)
+    .where(
+      and(
+        eq(runtimeInstances.tenantId, tenantId),
+        eq(runtimeInstances.runtimeType, runtimeType),
+      ),
+    );
+
+  const bindings = await db
     .select()
     .from(projectRuntimeBindings)
     .where(
@@ -172,30 +235,30 @@ async function ensureMockOrBoundInstance(
         eq(projectRuntimeBindings.runtimeType, runtimeType),
       ),
     )
-    .limit(1);
+    .orderBy(asc(projectRuntimeBindings.priority));
 
-  if (binding?.instanceId) {
-    const [inst] = await db
-      .select()
-      .from(runtimeInstances)
-      .where(eq(runtimeInstances.id, binding.instanceId))
-      .limit(1);
-    if (inst) return inst;
+  if (bindings.length > 0) {
+    for (const b of bindings) {
+      const candidates = b.instanceId
+        ? tenantInstances.filter((i) => i.id === b.instanceId)
+        : tenantInstances.filter((i) =>
+            labelsMatch(i.labels, (b.labelSelector ?? {}) as Record<string, string>),
+          );
+      for (const inst of candidates) {
+        if (await usable(inst)) return inst;
+      }
+    }
+    throw new AppError(409, "CONFLICT", "No bound runtime instance available", {
+      details: { code: "WORKSPACE_NOT_READY" },
+    });
   }
 
-  // Prefer any healthy/external instance for the tenant
-  const [existing] = await db
-    .select()
-    .from(runtimeInstances)
-    .where(
-      and(
-        eq(runtimeInstances.tenantId, tenantId),
-        eq(runtimeInstances.runtimeType, runtimeType),
-        ne(runtimeInstances.healthStatus, "disabled"),
-      ),
-    )
-    .limit(1);
-  if (existing) return existing;
+  // No explicit bindings: instances assigned to this project, or unassigned ones.
+  for (const inst of tenantInstances) {
+    const assigned = inst.assignedProjectIds ?? [];
+    if (assigned.length > 0 && !assigned.includes(projectId)) continue;
+    if (await usable(inst)) return inst;
+  }
 
   if (!runtimeMock) {
     throw new AppError(409, "CONFLICT", "No runtime instance available", {
@@ -286,7 +349,7 @@ async function ensureWorkspace(
         .where(eq(workspaces.id, existing.id));
       return { ...existing, status: "ready", instanceId };
     }
-    if (!existing.instanceId) {
+    if (existing.instanceId !== instanceId) {
       await db
         .update(workspaces)
         .set({ instanceId, updatedAt: new Date() })
@@ -455,6 +518,7 @@ export async function createSession(
     db,
     access.project.tenantId,
     projectId,
+    userId,
     runtimeType,
     runtimeMock,
     platformDek,
@@ -579,6 +643,7 @@ export async function getWorkspaceMe(
   isPlatformAdmin: boolean,
   platformDek: string,
   runtimeMock: boolean,
+  runtimeTypeOverride?: "opencode" | "claude",
 ) {
   const access = await resolveProjectAccess(db, projectId, userId, isPlatformAdmin);
   if (!can(access.projectRole, access.tenantRole, "workspace.own", { isPlatformAdmin })) {
@@ -587,11 +652,13 @@ export async function getWorkspaceMe(
   const projectSettings = (access.project.settings ?? {}) as {
     defaultRuntimeType?: "opencode" | "claude";
   };
-  const runtimeType = projectSettings.defaultRuntimeType ?? "opencode";
+  const runtimeType =
+    runtimeTypeOverride ?? projectSettings.defaultRuntimeType ?? "opencode";
   const instance = await ensureMockOrBoundInstance(
     db,
     access.project.tenantId,
     projectId,
+    userId,
     runtimeType,
     runtimeMock,
     platformDek,
@@ -604,14 +671,85 @@ export async function getWorkspaceMe(
     runtimeType,
     instance.id,
   );
+
+  const ctx = toInstanceCtx(instance, platformDek, runtimeMock);
+  const capabilities = await opencodeAdapter.capabilities(ctx).catch(() => ({
+    ...DEFAULT_CAPABILITIES,
+    files: true,
+    find: true,
+    streaming: true,
+    abort: true,
+    permissions: true,
+  }));
+
+  const status =
+    instance.healthStatus === "healthy" || instance.healthStatus === "degraded"
+      ? instance.healthStatus === "degraded"
+        ? "ready_degraded"
+        : ws.status === "ready" || ws.status === "idle"
+          ? ws.status
+          : "ready"
+      : instance.healthStatus === "pending"
+        ? "provisioning"
+        : "unavailable";
+
   return {
     id: ws.id,
     projectId: ws.projectId,
     ownerUserId: ws.ownerUserId,
     runtimeType: ws.runtimeType as "opencode" | "claude",
-    status: ws.status,
-    capabilities: DEFAULT_CAPABILITIES,
+    status,
+    statusReason:
+      status === "unavailable"
+        ? `instance health=${instance.healthStatus}`
+        : null,
+    mode: instance.mode as "external" | "managed",
+    instance: {
+      id: instance.id,
+      name: instance.name,
+      health: instance.healthStatus as
+        | "pending"
+        | "healthy"
+        | "degraded"
+        | "unhealthy"
+        | "disabled",
+    },
+    capabilities,
     createdAt: toIso(ws.createdAt)!,
+  };
+}
+
+export async function syncWorkspaceConfig(
+  db: Db,
+  workspaceId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+) {
+  const [ws] = await db
+    .select()
+    .from(workspaces)
+    .where(and(eq(workspaces.id, workspaceId), ne(workspaces.status, "deleted")))
+    .limit(1);
+  if (!ws) throw notFound("Workspace not found");
+  if (ws.ownerUserId !== userId && !isPlatformAdmin) throw notFound("Workspace not found");
+
+  const access = await resolveProjectAccess(db, ws.projectId, userId, isPlatformAdmin);
+  if (!can(access.projectRole, access.tenantRole, "workspace.own", { isPlatformAdmin })) {
+    throw forbidden();
+  }
+  if (!ws.instanceId) {
+    throw conflict("Workspace has no runtime instance", { code: "WORKSPACE_NOT_READY" });
+  }
+
+  await assertInstanceHealthyForConfig(db, ws.instanceId);
+
+  // Config Apply pipeline lands in a later P1 handbook; gate only.
+  return {
+    id: newId(),
+    workspaceId,
+    status: "queued" as const,
+    kind: "apply_config" as const,
+    message: "Config apply accepted (bundle pipeline pending)",
   };
 }
 

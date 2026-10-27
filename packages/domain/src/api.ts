@@ -333,6 +333,8 @@ export const RuntimeInstanceSchema = z.object({
   hasSyncAgent: z.boolean(),
   maxSessions: z.number().nullable(),
   assignedProjectIds: z.array(UuidSchema),
+  boundProjectCount: z.number().int().optional(),
+  workspaceCount: z.number().int().optional(),
   lastCheckedAt: TimestampSchema.nullable(),
   createdAt: TimestampSchema,
 });
@@ -353,6 +355,57 @@ export const RegisterInstanceReqSchema = z.object({
   maxSessions: z.number().int().positive().optional(),
   assignedProjectIds: z.array(UuidSchema).optional(),
   workdirHint: z.string().optional(),
+  enableSyncAgent: z.boolean().optional(),
+});
+
+export const TestInstanceReqSchema = RegisterInstanceReqSchema.omit({ name: true });
+
+export const PatchInstanceReqSchema = z.object({
+  name: z.string().min(1).max(128).optional(),
+  baseUrl: z.string().url().optional(),
+  tlsVerify: z.boolean().optional(),
+  auth: z
+    .object({
+      username: z.string(),
+      password: z.string(),
+    })
+    .optional(),
+  isolation: z.enum(["dedicated", "shared"]).optional(),
+  labels: z.record(z.string()).optional(),
+  maxSessions: z.number().int().positive().nullable().optional(),
+  assignedProjectIds: z.array(UuidSchema).optional(),
+  workdirHint: z.string().nullable().optional(),
+  enabled: z.boolean().optional(),
+});
+
+export const TestInstanceResSchema = z.object({
+  ok: z.boolean(),
+  version: z.string().optional(),
+  latencyMs: z.number().optional(),
+  error: z.string().optional(),
+});
+
+export const ProjectRuntimeBindingSchema = z.object({
+  id: UuidSchema,
+  runtimeType: RuntimeTypeSchema,
+  instanceId: UuidSchema.optional(),
+  labelSelector: z.record(z.string()).optional(),
+  priority: z.number().int(),
+});
+
+export const PutProjectBindingsReqSchema = z.object({
+  bindings: z.array(
+    z
+      .object({
+        runtimeType: RuntimeTypeSchema,
+        instanceId: UuidSchema.optional(),
+        labelSelector: z.record(z.string()).optional(),
+        priority: z.number().int().default(100),
+      })
+      .refine((b) => Boolean(b.instanceId) !== Boolean(b.labelSelector), {
+        message: "exactly one of instanceId or labelSelector required",
+      }),
+  ),
 });
 
 export const IssueSchema = z.object({
@@ -508,6 +561,16 @@ export const WorkspaceSchema = z.object({
   ownerUserId: UuidSchema,
   runtimeType: RuntimeTypeSchema,
   status: z.string(),
+  statusReason: z.string().nullable().optional(),
+  mode: z.enum(["external", "managed"]).optional(),
+  instance: z
+    .object({
+      id: UuidSchema,
+      name: z.string(),
+      health: InstanceHealthSchema,
+    })
+    .nullable()
+    .optional(),
   capabilities: z.object({
     v: z.literal(1),
     files: z.boolean(),
@@ -541,5 +604,11 @@ export type Issue = z.infer<typeof IssueSchema>;
 export type UserCredential = z.infer<typeof UserCredentialSchema>;
 export type ProjectCredential = z.infer<typeof ProjectCredentialSchema>;
 export type RuntimeInstance = z.infer<typeof RuntimeInstanceSchema>;
+export type RegisterInstanceReq = z.infer<typeof RegisterInstanceReqSchema>;
+export type TestInstanceReq = z.infer<typeof TestInstanceReqSchema>;
+export type PatchInstanceReq = z.infer<typeof PatchInstanceReqSchema>;
+export type TestInstanceRes = z.infer<typeof TestInstanceResSchema>;
+export type ProjectRuntimeBinding = z.infer<typeof ProjectRuntimeBindingSchema>;
+export type PutProjectBindingsReq = z.infer<typeof PutProjectBindingsReqSchema>;
 export type AgentSession = z.infer<typeof AgentSessionSchema>;
 export type Workspace = z.infer<typeof WorkspaceSchema>;

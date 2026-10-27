@@ -25,6 +25,13 @@ export const env = createEnv({
       .enum(["true", "false"])
       .default("true")
       .transform((v) => v === "true"),
+    /**
+     * Deployment profile (ADR-011). `intranet`/`airgap` forbid creating shared isolation
+     * instances (ADR-013).
+     */
+    DEPLOY_PROFILE: z
+      .enum(["intranet", "airgap", "internet-lab"])
+      .default("intranet"),
     CORS_ORIGIN: z.string().default("http://localhost:5173"),
   },
   runtimeEnv: process.env,

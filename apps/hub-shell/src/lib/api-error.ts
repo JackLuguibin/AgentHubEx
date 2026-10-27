@@ -29,6 +29,17 @@ export async function getApiErrorMessage(
       const message = body.error?.message;
       if (code === "TENANT_SUSPENDED") return message || "租户已停用";
       if (code === "PROJECT_ARCHIVED") return message || "项目已归档";
+      if (code === "INSTANCE_IN_USE") return "实例仍有工作区在使用，无法删除";
+      if (code === "BLOCKED_UPSTREAM_PATH") return "该路径不允许经 Hub 访问";
+      if (message && /Shared isolation is not allowed/i.test(message)) {
+        return "内网交付档禁止新建 shared 实例，请使用 dedicated";
+      }
+      if (message && /No (bound )?runtime instance available/i.test(message)) {
+        return "没有可用的运行实例（dedicated 实例可能已被其他成员占用）";
+      }
+      if (message && /offline or not ready; config apply is blocked/i.test(message)) {
+        return "实例离线或未就绪，已阻断配置下发";
+      }
       if (code === "CONFLICT" || response.status === 409) {
         if (message) {
           if (/last tenant owner/i.test(message)) {

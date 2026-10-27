@@ -20,6 +20,7 @@ import {
   listMySessions,
   loadSessionRuntime,
   sendMessage,
+  syncWorkspaceConfig,
 } from "../services/sessions.js";
 
 function openApiApp() {
@@ -131,16 +132,26 @@ export function sessionRoutes() {
       method: "get",
       path: "/projects/{projectId}/workspaces/me",
       tags: ["sessions"],
-      request: { params: z.object({ projectId: UuidParam }) },
+      request: {
+        params: z.object({ projectId: UuidParam }),
+        query: z.object({
+          runtimeType: z.enum(["opencode", "claude"]).optional(),
+        }),
+      },
       responses: {
         200: {
           content: { "application/json": { schema: WorkspaceSchema } },
           description: "My workspace",
         },
+        202: {
+          content: { "application/json": { schema: WorkspaceSchema } },
+          description: "Workspace provisioning",
+        },
       },
     }),
     async (c) => {
       const { projectId } = c.req.valid("param");
+      const query = c.req.valid("query");
       const p = c.get("principal")!;
       const env = c.get("env");
       const ws = await getWorkspaceMe(
@@ -150,10 +161,25 @@ export function sessionRoutes() {
         p.isPlatformAdmin,
         env.PLATFORM_DEK,
         env.RUNTIME_MOCK,
+        query.runtimeType,
       );
-      return c.json(ws, 200);
+      const status = ws.status === "provisioning" ? 202 : 200;
+      return c.json(ws, status);
     },
   );
+
+  app.post("/workspaces/:w/sync-config", async (c) => {
+    const p = c.get("principal")!;
+    return c.json(
+      await syncWorkspaceConfig(
+        c.get("db"),
+        c.req.param("w"),
+        p.userId,
+        p.isPlatformAdmin,
+      ),
+      202,
+    );
+  });
 
   app.openapi(
     createRoute({

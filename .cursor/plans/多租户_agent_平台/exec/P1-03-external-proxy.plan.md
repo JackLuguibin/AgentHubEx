@@ -4,24 +4,25 @@ overview: 运行实例登记（isolation+项目绑定，ADR-013）+ Facade 反�
 todos:
   - id: instances-ui
     content: 运行实例页：登记表单 URL/认证/isolation/项目绑定/测活
-    status: pending
+    status: completed
   - id: instance-api
     content: 完善 RuntimeInstance + ProjectRuntimeBinding API（ADR-013）
-    status: pending
+    status: completed
   - id: health-probe
     content: Hub 探测 /global/health；离线实例阻断配置下发入口
-    status: pending
+    status: completed
   - id: agent-proxy-allowlist
     content: 实现 /v1/workspaces/:id/agent/* 白名单反代；阻断 session/event/auth
-    status: pending
+    status: completed
   - id: workspace-me
     content: GET workspaces/me：懒创建 Workspace + capabilities
-    status: pending
+    status: completed
   - id: dod-proxy
     content: DoD：dedicated 绑定后经 Facade 访问文件类路径；浏览器无节点地址/密码
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P1-03 远程实例登记与 Facade 反代
 
 > **索引 todo**：`phase1-external-proxy` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

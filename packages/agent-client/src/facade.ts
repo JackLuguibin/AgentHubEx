@@ -7,13 +7,20 @@ import type {
   DirectoryUser,
   Invitation,
   Me,
+  PatchInstanceReq,
   PatchProjectReq,
   PatchTenantReq,
   Project,
   ProjectMember,
+  ProjectRuntimeBinding,
+  PutProjectBindingsReq,
   PutUserBindingsReq,
+  RegisterInstanceReq,
+  RuntimeInstance,
   Tenant,
   TenantMember,
+  TestInstanceReq,
+  TestInstanceRes,
   UserBindings,
   Workspace,
 } from "@agenthub/domain";
@@ -211,8 +218,59 @@ export function createFacadeClient(http: KyInstance) {
       await http.post("v1/auth/logout");
     },
 
-    async getWorkspaceMe(projectId: string) {
-      return http.get(`v1/projects/${projectId}/workspaces/me`).json<Workspace>();
+    async getWorkspaceMe(projectId: string, runtimeType?: "opencode" | "claude") {
+      const qs = runtimeType ? `?runtimeType=${runtimeType}` : "";
+      return http.get(`v1/projects/${projectId}/workspaces/me${qs}`).json<Workspace>();
+    },
+
+    async listInstances(tenantId: string) {
+      return http
+        .get(`v1/tenants/${tenantId}/instances`)
+        .json<Page<RuntimeInstance>>();
+    },
+
+    async testInstance(tenantId: string, input: TestInstanceReq) {
+      return http
+        .post(`v1/tenants/${tenantId}/instances/test`, { json: input })
+        .json<TestInstanceRes>();
+    },
+
+    async registerInstance(tenantId: string, input: RegisterInstanceReq) {
+      return http
+        .post(`v1/tenants/${tenantId}/instances`, { json: input })
+        .json<RuntimeInstance>();
+    },
+
+    async patchInstance(instanceId: string, input: PatchInstanceReq) {
+      return http
+        .patch(`v1/instances/${instanceId}`, { json: input })
+        .json<RuntimeInstance>();
+    },
+
+    async probeInstance(instanceId: string) {
+      return http.post(`v1/instances/${instanceId}/probe`).json<RuntimeInstance>();
+    },
+
+    async deleteInstance(instanceId: string) {
+      await http.delete(`v1/instances/${instanceId}`);
+    },
+
+    async getProjectBindings(projectId: string) {
+      return http
+        .get(`v1/projects/${projectId}/bindings`)
+        .json<{ bindings: ProjectRuntimeBinding[] }>();
+    },
+
+    async putProjectBindings(projectId: string, input: PutProjectBindingsReq) {
+      return http
+        .put(`v1/projects/${projectId}/bindings`, { json: input })
+        .json<{ bindings: ProjectRuntimeBinding[] }>();
+    },
+
+    /** Channel B (04 §4.2): allowlisted read-only agent paths, e.g. `file?path=/`. */
+    async agentGet<T = unknown>(workspaceId: string, upstreamPath: string) {
+      const path = upstreamPath.replace(/^\/+/, "");
+      return http.get(`v1/workspaces/${workspaceId}/agent/${path}`).json<T>();
     },
 
     async listSessions(projectId: string) {

@@ -10,6 +10,7 @@ import { requestIdMiddleware } from "./middleware/request-id.js";
 import { authRoutes, meRoutes } from "./routes/auth.js";
 import { credentialRoutes } from "./routes/credentials.js";
 import { instanceRoutes } from "./routes/instances.js";
+import { agentProxyRoutes } from "./routes/agent-proxy.js";
 import { issueRoutes } from "./routes/issues.js";
 import { membershipRoutes } from "./routes/memberships.js";
 import { projectRoutes } from "./routes/projects.js";
@@ -102,6 +103,7 @@ export function createApp(options: CreateAppOptions = {}) {
   v1.route("/", membershipRoutes());
   v1.route("/", credentialRoutes());
   v1.route("/", instanceRoutes());
+  v1.route("/", agentProxyRoutes());
   v1.route("/", issueRoutes());
   v1.route("/", sessionRoutes());
 
