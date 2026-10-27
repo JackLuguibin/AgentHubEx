@@ -11,9 +11,10 @@ import { conflict, forbidden, notFound } from "../errors.js";
 import { buildCredentialOptions } from "../lib/credential-options.js";
 import { allowedHostsOf, assertProviderHostAllowed } from "../lib/provider-hosts.js";
 import { last4OfSecret } from "../lib/crypto.js";
-import { sealUserSecret, sealWithTenantDek, secretAad } from "../lib/envelope.js";
+import { openCredentialSecret, sealUserSecret, sealWithTenantDek, secretAad } from "../lib/envelope.js";
 import { activeKek } from "../lib/kek.js";
-import { ensureTenantDek } from "./tenant-dek.js";
+import { logger } from "../lib/logger.js";
+import { ensureTenantDek, loadTenantDek } from "./tenant-dek.js";
 import { newId } from "../lib/id.js";
 import { toIso } from "../lib/time.js";
 import { resolveProjectAccess } from "./projects.js";
@@ -457,4 +458,155 @@ export async function deleteProjectCredential(
     )
     .returning();
   if (deleted.length === 0) throw notFound("Credential not found");
+}
+
+export type CredentialProbe = { ok: boolean; latencyMs?: number; error?: string };
+
+/** Reachability check. The secret is sent only as a request header and is never logged. */
+export async function probeProviderBaseUrl(
+  baseUrl: string,
+  secret: string,
+  timeoutMs = 5_000,
+): Promise<CredentialProbe> {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return { ok: false, error: "Base URL 不是合法地址" };
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { ok: false, error: "Base URL 必须是 http 或 https" };
+  }
+  const started = Date.now();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const raw = Buffer.from(secret, "utf8");
+  try {
+    await fetch(url, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${raw.toString("utf8")}` },
+      redirect: "manual",
+      signal: ctrl.signal,
+    });
+    return { ok: true, latencyMs: Date.now() - started };
+  } catch {
+    return { ok: false, latencyMs: Date.now() - started, error: "无法连接该地址" };
+  } finally {
+    clearTimeout(timer);
+    raw.fill(0);
+  }
+}
+
+async function loadCurrentSecret(
+  db: Db,
+  kind: "user" | "project",
+  credentialId: string,
+  version: number,
+  platformDek: string,
+  tenantId: string | null,
+) {
+  const [row] = await db
+    .select()
+    .from(credentialVersions)
+    .where(
+      and(
+        eq(credentialVersions.credentialKind, kind),
+        eq(credentialVersions.credentialId, credentialId),
+        eq(credentialVersions.version, version),
+      ),
+    )
+    .limit(1);
+  if (!row || row.revokedAt) return null;
+  const tenantDek = tenantId ? await loadTenantDek(db, tenantId, activeKek(platformDek)) : null;
+  return openCredentialSecret(Buffer.from(row.secretCiphertext), {
+    platformDek,
+    kind,
+    id: credentialId,
+    version,
+    tenantId,
+    tenantDek,
+  });
+}
+
+function baseUrlOf(metadata: unknown): string | undefined {
+  if (!metadata || typeof metadata !== "object" || !("baseUrl" in metadata)) return undefined;
+  const value = (metadata as { baseUrl?: unknown }).baseUrl;
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+export async function testUserCredential(
+  db: Db,
+  userId: string,
+  credentialId: string,
+  platformDek: string,
+) {
+  const [row] = await db
+    .select()
+    .from(userCredentials)
+    .where(and(eq(userCredentials.id, credentialId), eq(userCredentials.userId, userId)))
+    .limit(1);
+  if (!row) throw notFound("Credential not found");
+  const baseUrl = baseUrlOf(row.metadata);
+  if (!baseUrl) return { ok: false, error: "请先填写 Base URL" } satisfies CredentialProbe;
+  let secret: string | null = null;
+  try {
+    secret = await loadCurrentSecret(db, "user", row.id, row.currentVersion, platformDek, null);
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.name : "open" }, "credential test decrypt failed");
+    return { ok: false, error: "密钥无法读取，请轮换后再测" } satisfies CredentialProbe;
+  }
+  if (!secret) return { ok: false, error: "密钥无法读取，请轮换后再测" };
+  try {
+    return await probeProviderBaseUrl(baseUrl, secret);
+  } finally {
+    secret = null;
+  }
+}
+
+export async function testProjectCredential(
+  db: Db,
+  projectId: string,
+  credentialId: string,
+  userId: string,
+  isPlatformAdmin: boolean,
+  platformDek: string,
+) {
+  const access = await resolveProjectAccess(db, projectId, userId, isPlatformAdmin);
+  if (
+    !can(access.projectRole, access.tenantRole, "credential.project.manage", {
+      isPlatformAdmin,
+    })
+  ) {
+    throw forbidden();
+  }
+  const [row] = await db
+    .select()
+    .from(projectCredentials)
+    .where(
+      and(eq(projectCredentials.id, credentialId), eq(projectCredentials.projectId, projectId)),
+    )
+    .limit(1);
+  if (!row) throw notFound("Credential not found");
+  const baseUrl = baseUrlOf(row.metadata);
+  if (!baseUrl) return { ok: false, error: "请先填写 Base URL" } satisfies CredentialProbe;
+  let secret: string | null = null;
+  try {
+    secret = await loadCurrentSecret(
+      db,
+      "project",
+      row.id,
+      row.currentVersion,
+      platformDek,
+      row.tenantId,
+    );
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.name : "open" }, "credential test decrypt failed");
+    return { ok: false, error: "密钥无法读取，请轮换后再测" } satisfies CredentialProbe;
+  }
+  if (!secret) return { ok: false, error: "密钥无法读取，请轮换后再测" };
+  try {
+    return await probeProviderBaseUrl(baseUrl, secret);
+  } finally {
+    secret = null;
+  }
 }

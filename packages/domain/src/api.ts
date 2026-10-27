@@ -326,6 +326,12 @@ export const UpsertProjectCredentialReqSchema = UpsertCredentialReqSchema.extend
   isDefault: z.boolean().optional(),
 });
 
+export const CredentialTestResSchema = z.object({
+  ok: z.boolean(),
+  latencyMs: z.number().int().nonnegative().optional(),
+  error: z.string().optional(),
+});
+
 export const RuntimeInstanceSchema = z.object({
   id: UuidSchema,
   name: z.string(),
@@ -661,6 +667,9 @@ export type Board = z.infer<typeof BoardSchema>;
 export type LinkedSession = z.infer<typeof LinkedSessionSchema>;
 export type UserCredential = z.infer<typeof UserCredentialSchema>;
 export type ProjectCredential = z.infer<typeof ProjectCredentialSchema>;
+export type UpsertCredentialReq = z.infer<typeof UpsertCredentialReqSchema>;
+export type UpsertProjectCredentialReq = z.infer<typeof UpsertProjectCredentialReqSchema>;
+export type CredentialTestRes = z.infer<typeof CredentialTestResSchema>;
 export type RuntimeInstance = z.infer<typeof RuntimeInstanceSchema>;
 export type RegisterInstanceReq = z.infer<typeof RegisterInstanceReqSchema>;
 export type TestInstanceReq = z.infer<typeof TestInstanceReqSchema>;

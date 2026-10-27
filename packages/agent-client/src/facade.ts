@@ -14,6 +14,11 @@ import type {
   CommonTree,
   DirectoryUser,
   CredentialOptionsRes,
+  CredentialTestRes,
+  ProjectCredential,
+  UpsertCredentialReq,
+  UpsertProjectCredentialReq,
+  UserCredential,
   EffectiveConfig,
   ImportSkillReq,
   Invitation,
@@ -47,6 +52,28 @@ import type { Envelope } from "@agenthub/runtime-contract";
 import type { KyInstance } from "ky";
 
 export type Page<T> = { items: T[]; nextCursor: string | null };
+
+export type AuditLog = {
+  id: string;
+  at: string;
+  actorId: string | null;
+  actorType: string;
+  actorName: string | null;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  projectId: string | null;
+  meta: Record<string, unknown>;
+};
+
+export type AuditQuery = {
+  actor?: string;
+  action?: string;
+  from?: string;
+  to?: string;
+  projectId?: string;
+  cursor?: string;
+};
 
 export type CreateSessionInput = {
   title?: string;
@@ -218,6 +245,24 @@ export function createFacadeClient(http: KyInstance) {
       return http.get(`v1/projects/${projectId}`).json<Project>();
     },
 
+    async listAudit(tenantId: string, query: AuditQuery = {}) {
+      const search = new URLSearchParams();
+      for (const [key, value] of Object.entries(query)) {
+        if (value) search.set(key, value);
+      }
+      const qs = search.toString();
+      return http.get(`v1/tenants/${tenantId}/audit${qs ? `?${qs}` : ""}`).json<Page<AuditLog>>();
+    },
+
+    async exportAudit(tenantId: string, query: AuditQuery = {}) {
+      const search = new URLSearchParams();
+      for (const [key, value] of Object.entries(query)) {
+        if (value) search.set(key, value);
+      }
+      const qs = search.toString();
+      return http.get(`v1/tenants/${tenantId}/audit/export${qs ? `?${qs}` : ""}`).text();
+    },
+
     async patchProject(projectId: string, input: PatchProjectReq) {
       return http.patch(`v1/projects/${projectId}`, { json: input }).json<Project>();
     },
@@ -355,6 +400,56 @@ export function createFacadeClient(http: KyInstance) {
       return http
         .get(`v1/projects/${projectId}/credentials/options`)
         .json<CredentialOptionsRes>();
+    },
+
+    async listUserCredentials() {
+      return http.get("v1/me/credentials").json<Page<UserCredential>>();
+    },
+
+    async createUserCredential(input: UpsertCredentialReq) {
+      return http.post("v1/me/credentials", { json: input }).json<UserCredential>();
+    },
+
+    async patchUserCredential(id: string, input: Partial<UpsertCredentialReq>) {
+      return http.patch(`v1/me/credentials/${id}`, { json: input }).json<UserCredential>();
+    },
+
+    async deleteUserCredential(id: string) {
+      await http.delete(`v1/me/credentials/${id}`);
+    },
+
+    async testUserCredential(id: string) {
+      return http.post(`v1/me/credentials/${id}/test`).json<CredentialTestRes>();
+    },
+
+    async listProjectCredentials(projectId: string) {
+      return http.get(`v1/projects/${projectId}/credentials`).json<Page<ProjectCredential>>();
+    },
+
+    async createProjectCredential(projectId: string, input: UpsertProjectCredentialReq) {
+      return http
+        .post(`v1/projects/${projectId}/credentials`, { json: input })
+        .json<ProjectCredential>();
+    },
+
+    async patchProjectCredential(
+      projectId: string,
+      id: string,
+      input: Partial<UpsertProjectCredentialReq>,
+    ) {
+      return http
+        .patch(`v1/projects/${projectId}/credentials/${id}`, { json: input })
+        .json<ProjectCredential>();
+    },
+
+    async deleteProjectCredential(projectId: string, id: string) {
+      await http.delete(`v1/projects/${projectId}/credentials/${id}`);
+    },
+
+    async testProjectCredential(projectId: string, id: string) {
+      return http
+        .post(`v1/projects/${projectId}/credentials/${id}/test`)
+        .json<CredentialTestRes>();
     },
 
     async getBoard(projectId: string, query: IssueListQuery & { includeCancelled?: boolean } = {}) {
@@ -552,6 +647,10 @@ export function createFacadeClient(http: KyInstance) {
       return http
         .get(`v1/projects/${projectId}/common/search?q=${encodeURIComponent(q)}`)
         .json<Page<CommonEntry>>();
+    },
+
+    async getCommonSettings(projectId: string) {
+      return http.get(`v1/projects/${projectId}/common/settings`).json<CommonSettings>();
     },
 
     async putCommonSettings(

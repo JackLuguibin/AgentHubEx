@@ -13,6 +13,8 @@ import {
   listCredentialOptions,
   listProjectCredentials,
   listUserCredentials,
+  testProjectCredential,
+  testUserCredential,
   updateProjectCredential,
   updateUserCredential,
 } from "../services/credentials.js";
@@ -57,6 +59,13 @@ export function meCredentialRoutes() {
     const p = c.get("principal")!;
     await deleteUserCredential(c.get("db"), p.userId, c.req.param("id"));
     return c.body(null, 204);
+  });
+
+  app.post("/credentials/:id/test", async (c) => {
+    const p = c.get("principal")!;
+    return c.json(
+      await testUserCredential(c.get("db"), p.userId, c.req.param("id"), c.get("env").PLATFORM_DEK),
+    );
   });
 
   return app;
@@ -131,6 +140,20 @@ export function credentialRoutes() {
       principal.isPlatformAdmin,
     );
     return c.body(null, 204);
+  });
+
+  app.post("/projects/:p/credentials/:id/test", async (c) => {
+    const principal = c.get("principal")!;
+    return c.json(
+      await testProjectCredential(
+        c.get("db"),
+        c.req.param("p"),
+        c.req.param("id"),
+        principal.userId,
+        principal.isPlatformAdmin,
+        c.get("env").PLATFORM_DEK,
+      ),
+    );
   });
 
   return app;
