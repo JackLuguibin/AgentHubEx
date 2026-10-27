@@ -72,9 +72,10 @@ end
 | 上游路径 | 方法 | 策略 |
 |---|---|---|
 | `/file/**`, `/find/**` | GET | **放行**（工作区内） |
+| `/file/content` | PUT | **放行**（P2 轻量编辑；仅个人区文本。`project-common`、`..`、`.agenthub` 拒绝） |
 | `/agent`, `/mcp` | GET | **放行**（只读发现） |
 | `/config` | GET | **放行**（响应脱敏 secret） |
-| `/pty/**` | WS | **放行**（P2+；受 `capabilities.pty` 与租户开关） |
+| `/pty/**` | GET/POST/PUT/DELETE/WS | **放行**（P2；`capabilities.pty === true` 且租户 `settings.ptyEnabled !== false`，否则 501，工作台不显示终端）。浏览器不直连节点：`POST /v1/workspaces/{w}/pty/open` 换一次性 ticket，再连 Hub `GET /v1/workspaces/{w}/pty/connect?ticket=`，由 Hub 代连上游 `/pty/{id}/connect` |
 | `/session`, `/session/:id/**` | * | **阻断**（会话一律 Facade；adapter 内网直连上游） |
 | `/event` | GET | **阻断**（会话 SSE 仅 `/v1/sessions/{id}/events`；Gateway 内网拉上游 `/event`） |
 | `/mcp` | POST | **阻断**（仅 Apply 引擎内部） |

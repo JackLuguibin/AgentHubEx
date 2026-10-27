@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Envelope } from "@agenthub/runtime-contract";
 import {
+  agentFileContentRequest,
   agentFileRequest,
   agentFindRequest,
+  canEditFile,
+  closeEditorTab,
+  lineDiff,
+  upsertEditorTab,
   applyEnvelope,
   browserMustNotCallAgent,
   credentialSwitchLocked,
@@ -124,12 +129,48 @@ describe("workbench files", () => {
 
   it("only builds allowlisted file and find reads", () => {
     expect(agentFileRequest("/README.md")).toBe("file?path=%2FREADME.md");
+    expect(agentFileContentRequest("/src/main.ts")).toBe("file/content?path=%2Fsrc%2Fmain.ts");
     expect(agentFindRequest("docs")).toBe("find?q=docs");
     expect(browserMustNotCallAgent("GET", "/event")).toBe(true);
     expect(browserMustNotCallAgent("POST", "/session")).toBe(true);
     expect(browserMustNotCallAgent("PUT", "/auth/anthropic")).toBe(true);
     expect(browserMustNotCallAgent("PATCH", "/config")).toBe(true);
     expect(browserMustNotCallAgent("GET", "/file")).toBe(false);
+    expect(browserMustNotCallAgent("PUT", "/file/content")).toBe(false);
     expect(parseCredentialKey("user:abc")).toEqual({ source: "user", id: "abc" });
+  });
+});
+
+describe("workbench editor", () => {
+  it("keeps a dirty draft and closes the active tab", () => {
+    const opened = upsertEditorTab([], {
+      path: "/src/main.ts",
+      original: "a\n",
+      draft: "a\n",
+      zone: "personal",
+      editable: true,
+    });
+    const dirty = opened.map((tab) => ({ ...tab, draft: "b\n" }));
+    const reloaded = upsertEditorTab(dirty, {
+      path: "/src/main.ts",
+      original: "c\n",
+      draft: "c\n",
+      zone: "personal",
+      editable: true,
+    });
+    expect(reloaded[0]).toMatchObject({ original: "c\n", draft: "b\n" });
+    expect(closeEditorTab(reloaded, "/src/main.ts", "/src/main.ts").active).toBeNull();
+    expect(canEditFile("common", "text")).toBe(false);
+    expect(canEditFile("personal", null)).toBe(false);
+    expect(canEditFile("personal", "text")).toBe(true);
+  });
+
+  it("diffs the open buffer against the saved text", () => {
+    expect(lineDiff("a\nb\n", "a\nc\n")).toEqual([
+      { kind: "same", text: "a" },
+      { kind: "del", text: "b" },
+      { kind: "add", text: "c" },
+      { kind: "same", text: "" },
+    ]);
   });
 });

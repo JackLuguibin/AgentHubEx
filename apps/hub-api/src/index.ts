@@ -1,3 +1,4 @@
+import { Server } from "node:http";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
 import { ensureNodeCa } from "./lib/node-ca.js";
@@ -5,6 +6,7 @@ import { createObjectStore } from "./lib/object-store.js";
 import { startHubNodeMtls } from "./lib/node-mtls.js";
 import { logger } from "./lib/logger.js";
 import { startAutoSync } from "./services/auto-sync.js";
+import { attachPtyBridge } from "./services/pty-bridge.js";
 import { probeAllInstances } from "./services/instances.js";
 import { markStaleNodes, sweepIdleWorkspaces, tlsForSweep } from "./services/idle.js";
 
@@ -71,7 +73,7 @@ if (env.NODE_MTLS_PORT > 0) {
     .catch((err) => logger.error({ err }, "node mTLS listener failed"));
 }
 
-serve(
+const server = serve(
   {
     fetch: app.fetch,
     port: env.PORT,
@@ -80,3 +82,4 @@ serve(
     logger.info({ port: info.port }, "hub-api listening");
   },
 );
+if (server instanceof Server) attachPtyBridge(server);

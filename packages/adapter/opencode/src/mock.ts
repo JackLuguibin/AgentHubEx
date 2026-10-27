@@ -105,7 +105,7 @@ export const mockOpencodeAdapter: RuntimeAdapter = {
       permissions: true,
       streaming: true,
       abort: true,
-      pty: false,
+      pty: true,
     };
   },
 

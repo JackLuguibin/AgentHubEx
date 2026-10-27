@@ -30,7 +30,8 @@
 | 日期 | `date-fns` | — |
 | 校验 | `zod`（与后端同 schema） | — |
 | 虚拟列表（长会话） | `@tanstack/react-virtual` | — |
-| P2 编辑器 | `@monaco-editor/react` 或 CodeMirror 6（`@uiw/react-codemirror`） | 自研编辑器 |
+| P2 编辑器 | CodeMirror 6（`@uiw/react-codemirror`，MIT） | 自研编辑器 / Monaco |
+| P2 终端 | `@xterm/xterm`（MIT） | 自研终端模拟 |
 | 测试 | Vitest、Testing Library、MSW、Playwright | — |
 
 Workbench（`packages/workbench`）是**业务组合**，底层渲染/流式/表单全部用上表库。

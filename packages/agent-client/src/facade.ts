@@ -295,10 +295,60 @@ export function createFacadeClient(http: KyInstance) {
         .json<{ bindings: ProjectRuntimeBinding[] }>();
     },
 
-    /** Channel B (04 §4.2): allowlisted read-only agent paths, e.g. `file?path=/`. */
+    /** Channel B (04 §4.2): allowlisted agent paths, e.g. `file?path=/`. */
     async agentGet<T = unknown>(workspaceId: string, upstreamPath: string) {
       const path = upstreamPath.replace(/^\/+/, "");
       return http.get(`v1/workspaces/${workspaceId}/agent/${path}`).json<T>();
+    },
+
+    async agentPut<T = unknown>(workspaceId: string, upstreamPath: string, jsonBody: unknown) {
+      const path = upstreamPath.replace(/^\/+/, "");
+      return http.put(`v1/workspaces/${workspaceId}/agent/${path}`, { json: jsonBody }).json<T>();
+    },
+
+    /** Opens a capability-gated terminal. The socket stays on the Hub. */
+    async openPty(
+      workspaceId: string,
+      handlers: {
+        baseUrl: string;
+        cols: number;
+        rows: number;
+        onData: (chunk: string) => void;
+        onClose: () => void;
+      },
+    ) {
+      const opened = await http
+        .post(`v1/workspaces/${workspaceId}/pty/open`, {
+          json: { cols: handlers.cols, rows: handlers.rows },
+        })
+        .json<{ ptyId: string; ticket: string; expiresIn: number }>();
+      const ws = new WebSocket(ptyConnectUrl(handlers.baseUrl, workspaceId, opened.ticket));
+      ws.binaryType = "arraybuffer";
+      let openedSocket = false;
+      const ready = new Promise<void>((resolve, reject) => {
+        ws.onopen = () => {
+          openedSocket = true;
+          resolve();
+        };
+        ws.onerror = () => {
+          if (!openedSocket) reject(new Error("终端连接失败"));
+        };
+      });
+      ws.onmessage = (event) => {
+        const data = event.data;
+        if (typeof data === "string") handlers.onData(data);
+        else if (data instanceof ArrayBuffer) handlers.onData(new TextDecoder().decode(data));
+      };
+      ws.onclose = () => handlers.onClose();
+      await ready;
+      return {
+        send(data: string) {
+          if (ws.readyState === WebSocket.OPEN) ws.send(data);
+        },
+        close() {
+          ws.close();
+        },
+      };
     },
 
     async listCredentialOptions(projectId: string) {
@@ -643,6 +693,16 @@ export function sessionEventsUrl(baseUrl: string, sessionId: string) {
 
 export function boardEventsUrl(baseUrl: string, projectId: string) {
   return `${baseUrl.replace(/\/$/, "")}/v1/projects/${projectId}/board/events`;
+}
+
+/** Browser PTY socket. Ticket auth, Hub host, never the runtime node. */
+export function ptyConnectUrl(baseUrl: string, workspaceId: string, ticket: string) {
+  const url = new URL(baseUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = `/v1/workspaces/${workspaceId}/pty/connect`;
+  url.search = `?ticket=${encodeURIComponent(ticket)}`;
+  url.hash = "";
+  return url.toString();
 }
 
 function issueSearchParams(query: IssueListQuery) {

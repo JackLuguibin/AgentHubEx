@@ -97,6 +97,8 @@ export const TenantSchema = z.object({
   settings: z.object({
     allowedLoginMethods: z.array(z.string()).default(["password"]),
     defaultModel: z.string().optional(),
+    /** `false` hides the workbench terminal even when the runtime reports `pty`. */
+    ptyEnabled: z.boolean().optional(),
   }),
   createdAt: TimestampSchema,
 });
@@ -114,6 +116,7 @@ export const PatchTenantReqSchema = z.object({
     .object({
       allowedLoginMethods: z.array(z.string()).optional(),
       defaultModel: z.string().optional(),
+      ptyEnabled: z.boolean().optional(),
     })
     .optional(),
 });

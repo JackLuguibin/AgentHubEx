@@ -44,6 +44,7 @@ function mapTenant(row: typeof tenants.$inferSelect): Tenant {
         : DEFAULT_SETTINGS.allowedLoginMethods,
       defaultModel:
         typeof settings.defaultModel === "string" ? settings.defaultModel : undefined,
+      ...(typeof settings.ptyEnabled === "boolean" ? { ptyEnabled: settings.ptyEnabled } : {}),
     },
     createdAt: toIso(row.createdAt)!,
   };

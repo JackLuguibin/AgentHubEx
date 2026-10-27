@@ -7,6 +7,7 @@ import {
   projectRuntimeBindings,
   projects,
   runtimeInstances,
+  tenants,
   userCredentials,
   workspaces,
 } from "@agenthub/db";
@@ -23,6 +24,7 @@ import { decryptSecret, encryptSecret } from "../lib/crypto.js";
 import type { HubRuntime } from "../lib/hub-runtime.js";
 import { allowedHostsOf, assertProviderHostAllowed } from "../lib/provider-hosts.js";
 import { assertDailyTokenQuota, tokensPerDayOf } from "../lib/token-quota.js";
+import { tenantAllowsPty } from "../lib/agent-allowlist.js";
 import { newId } from "../lib/id.js";
 import { toIso } from "../lib/time.js";
 import { assertInstanceHealthyForConfig } from "./instances.js";
@@ -910,6 +912,14 @@ export async function getWorkspaceMe(
     abort: true,
     permissions: true,
   }));
+  const [tenantRow] = await db
+    .select({ settings: tenants.settings })
+    .from(tenants)
+    .where(eq(tenants.id, access.project.tenantId))
+    .limit(1);
+  const visibleCapabilities = tenantAllowsPty(tenantRow?.settings)
+    ? capabilities
+    : { ...capabilities, pty: false };
 
   const status =
     instance.healthStatus === "healthy" || instance.healthStatus === "degraded"
@@ -943,7 +953,7 @@ export async function getWorkspaceMe(
         | "unhealthy"
         | "disabled",
     },
-    capabilities,
+    capabilities: visibleCapabilities,
     createdAt: toIso(ws.createdAt)!,
   };
 }

@@ -65,6 +65,7 @@ const liveAdapter: RuntimeAdapter = {
       streaming: true,
       abort: true,
       permissions: true,
+      pty: true,
     };
   },
 

@@ -12,11 +12,16 @@ import {
   cn,
   ui,
 } from "@agenthub/hub-ui-kit";
-import { Command, Folder, Plus, RefreshCw, Send, Terminal } from "lucide-react";
+import { Command, Folder, Plus, RefreshCw, Send } from "lucide-react";
+import { CodePane } from "./CodePane.js";
+import { TerminalPane } from "./TerminalPane.js";
 import {
+  agentFileContentRequest,
   agentFileRequest,
   agentFindRequest,
   applyEnvelope,
+  canEditFile,
+  closeEditorTab,
   credentialKey,
   credentialSwitchLocked,
   extractText,
@@ -28,8 +33,11 @@ import {
   showsFind,
   showsPermissions,
   showsTerminal,
+  upsertEditorTab,
   type AgentFileNode,
   type ChatLine,
+  type EditorMode,
+  type EditorTab,
   type PermissionAsk,
 } from "./model.js";
 
@@ -71,7 +79,9 @@ export function Workbench({
   const [permission, setPermission] = useState<PermissionAsk | null>(null);
   const [cwd, setCwd] = useState("/");
   const [entries, setEntries] = useState<AgentFileNode[]>([]);
-  const [preview, setPreview] = useState<{ path: string; text: string | null; zone: "personal" | "common" } | null>(null);
+  const [tabs, setTabs] = useState<EditorTab[]>([]);
+  const [activePath, setActivePath] = useState<string | null>(null);
+  const [editorMode, setEditorMode] = useState<EditorMode>("code");
   const [findQuery, setFindQuery] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -109,7 +119,8 @@ export function Workbench({
     let cancelled = false;
     setCredentialValue("");
     setOptions(null);
-    setPreview(null);
+    setTabs([]);
+    setActivePath(null);
     setEntries([]);
     setCwd("/");
     void client
@@ -278,10 +289,22 @@ export function Workbench({
         if (normalized.kind !== "directory") return;
         setCwd(path);
         setEntries(normalized.entries);
-        setPreview(null);
         return;
       }
-      setPreview({ path: normalized.path, text: normalized.text, zone: normalized.zone });
+      const content = await client.agentGet(workspace.id, agentFileContentRequest(normalized.path));
+      const file = normalizeAgentFile(content, normalized.path);
+      if (file.kind !== "file") return;
+      const tab: EditorTab = {
+        path: file.path,
+        original: file.text ?? "",
+        draft: file.text ?? "",
+        zone: file.zone,
+        editable: canEditFile(file.zone, file.text),
+      };
+      setTabs((current) => upsertEditorTab(current, tab));
+      setActivePath(tab.path);
+      setEditorMode("code");
+      setMobilePane("code");
     } catch (err: unknown) {
       setError(await readError(err, "读取文件失败"));
     }
@@ -410,6 +433,39 @@ export function Workbench({
     }
   };
 
+  const onSaveFile = async (path: string) => {
+    const tab = tabs.find((item) => item.path === path);
+    if (!workspace?.id || !tab?.editable) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.agentPut(workspace.id, agentFileContentRequest(path), { content: tab.draft });
+      setTabs((current) =>
+        current.map((item) => (item.path === path ? { ...item, original: item.draft } : item)),
+      );
+      setNotice("已保存到个人工作区");
+    } catch (err: unknown) {
+      setError(await readError(err, "保存失败"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onAttachFile = (path: string) => {
+    setDraft((current) => `${current}${current ? "\n" : ""}@${path.startsWith("/") ? path : `/${path}`} `);
+    setMobilePane("chat");
+  };
+
+  const onCopyPath = async (path: string) => {
+    const text = path.startsWith("/") ? path : `/${path}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setNotice(`已复制 ${text}`);
+    } catch {
+      setNotice(text);
+    }
+  };
+
   const onSyncConfig = async () => {
     setBusy(true);
     setNotice(null);
@@ -491,7 +547,7 @@ export function Workbench({
       {error ? <p className="text-[11px] text-[#b42318]">{error}</p> : null}
       {notice ? <p className="text-[11px] text-[#067647]">{notice}</p> : null}
 
-      <div className="mb-0 flex gap-1 max-[680px]:flex min-[681px]:hidden" role="tablist" aria-label="工作台面板">
+      <div className="mb-0 flex gap-1 min-[1201px]:hidden" role="tablist" aria-label="工作台面板">
         {(
           [
             ["files", "文件"],
@@ -525,10 +581,10 @@ export function Workbench({
           ui.surface,
           "grid min-h-0 flex-[320px] overflow-hidden",
           "grid-cols-1 min-[681px]:grid-cols-[minmax(140px,160px)_minmax(0,1fr)] min-[1201px]:grid-cols-[minmax(145px,190px)_minmax(0,1fr)_minmax(190px,250px)]",
-          "max-[680px]:data-[pane=files]:[&>*:nth-child(2)]:hidden max-[680px]:data-[pane=files]:[&>*:nth-child(3)]:hidden",
-          "max-[680px]:data-[pane=chat]:[&>*:nth-child(1)]:hidden max-[680px]:data-[pane=chat]:[&>*:nth-child(3)]:hidden",
-          "max-[680px]:data-[pane=code]:[&>*:nth-child(1)]:hidden max-[680px]:data-[pane=code]:[&>*:nth-child(2)]:hidden",
           "max-[1200px]:[&>*:nth-child(3)]:hidden",
+          "max-[680px]:data-[pane=files]:[&>*:nth-child(2)]:hidden max-[1200px]:data-[pane=files]:[&>*:nth-child(3)]:hidden",
+          "max-[680px]:data-[pane=chat]:[&>*:nth-child(1)]:hidden max-[1200px]:data-[pane=chat]:[&>*:nth-child(3)]:hidden",
+          "max-[1200px]:data-[pane=code]:grid-cols-1 max-[1200px]:data-[pane=code]:[&>*:nth-child(1)]:hidden max-[1200px]:data-[pane=code]:[&>*:nth-child(2)]:hidden max-[1200px]:data-[pane=code]:[&>*:nth-child(3)]:flex",
         )}
       >
         <aside className="flex min-h-0 flex-col overflow-hidden border-r border-ah-line bg-[#fafbfc] max-[680px]:border-r-0">
@@ -742,31 +798,32 @@ export function Workbench({
           </form>
         </section>
 
-        <aside className="flex min-h-0 flex-col overflow-hidden bg-[#fbfcfd]" aria-label="工作空间文件预览">
-          <div className="flex min-h-[42px] shrink-0 items-center border-b border-ah-line px-3">
-            <span className="text-[10px] text-[#98a2b3]">文件预览</span>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eef1ed] px-3.5 py-2.5 font-mono text-[9px] leading-[1.5] text-[#667085]">
-            <span>{preview?.path ?? "/workspace"}</span>
-            <span className={ui.badge}>{preview?.zone === "common" ? "公共资料 · 只读" : "个人工作区"}</span>
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto px-3.5 py-4 text-[10px] leading-[1.8] text-[#475467]">
-            {preview ? (
-              <pre className="m-0 whitespace-pre-wrap font-mono">
-                {preview.text ?? "此文件不能按文本预览。"}
-              </pre>
-            ) : (
-              <p className="m-0 text-[#9aa79d]">
-                {filesOn ? "在左侧打开文件后，这里显示只读文本。" : "当前运行实例没有文件能力，文件树已隐藏。"}
-              </p>
-            )}
-            {terminalOn ? (
-              <p className="mt-4 flex items-center gap-1 text-[#667085]">
-                <Icon icon={Terminal} size="sm" />
-                终端能力已开启。完整终端不在本阶段。
-              </p>
-            ) : null}
-          </div>
+        <aside className="flex min-h-0 flex-col overflow-hidden bg-[#fbfcfd]">
+          <CodePane
+            filesOn={filesOn}
+            tabs={tabs}
+            activePath={activePath}
+            mode={editorMode}
+            busy={busy}
+            onMode={setEditorMode}
+            onSelect={setActivePath}
+            onClose={(path) => {
+              const next = closeEditorTab(tabs, path, activePath);
+              setTabs(next.tabs);
+              setActivePath(next.active);
+            }}
+            onChange={(path, draft) => {
+              setTabs((current) =>
+                current.map((item) => (item.path === path && item.editable ? { ...item, draft } : item)),
+              );
+            }}
+            onSave={(path) => void onSaveFile(path)}
+            onAttach={onAttachFile}
+            onCopy={(path) => void onCopyPath(path)}
+          />
+          {terminalOn && workspace?.id ? (
+            <TerminalPane client={client} workspaceId={workspace.id} apiBase={apiBase} />
+          ) : null}
         </aside>
       </div>
 

@@ -3,6 +3,7 @@ export {
   createFacadeClient,
   sessionEventsUrl,
   boardEventsUrl,
+  ptyConnectUrl,
   type FacadeClient,
   type CreateSessionInput,
   type SendMessageInput,

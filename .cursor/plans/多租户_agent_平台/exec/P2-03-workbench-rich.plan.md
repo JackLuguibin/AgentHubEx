@@ -4,18 +4,19 @@ overview: 编辑器预览、差异、终端按 capabilities。
 todos:
   - id: editor-preview
     content: 多标签代码预览/轻量编辑（Monaco 或 CodeMirror，见 17）
-    status: pending
+    status: completed
   - id: diff-view
     content: 差异视图接入工作台
-    status: pending
+    status: completed
   - id: pty-capabilities
     content: 按 capabilities 开放 /pty；无能力则隐藏
-    status: pending
+    status: completed
   - id: dod-rich-wb
     content: DoD：capabilities 驱动终端入口；P1 会话路径不回归
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P2-03 Workbench 增强
 
 > **索引 todo**：`phase2-workbench-rich` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

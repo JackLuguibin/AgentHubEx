@@ -83,6 +83,86 @@ export function showsAbort(capabilities: { abort?: boolean } | null | undefined)
   return capabilities?.abort === true;
 }
 
+export type EditorMode = "code" | "diff" | "info";
+
+export type EditorTab = {
+  path: string;
+  original: string;
+  draft: string;
+  zone: "personal" | "common";
+  editable: boolean;
+};
+
+export type DiffLine = { kind: "same" | "add" | "del"; text: string };
+
+export function canEditFile(zone: "personal" | "common", text: string | null) {
+  return zone === "personal" && text !== null;
+}
+
+export function tabDirty(tab: EditorTab) {
+  return tab.draft !== tab.original;
+}
+
+export function upsertEditorTab(tabs: EditorTab[], next: EditorTab): EditorTab[] {
+  const existing = tabs.find((tab) => tab.path === next.path);
+  if (!existing) return [...tabs, next];
+  if (existing.draft !== existing.original) {
+    return tabs.map((tab) =>
+      tab.path === next.path
+        ? { ...existing, original: next.original, zone: next.zone, editable: next.editable }
+        : tab,
+    );
+  }
+  return tabs.map((tab) => (tab.path === next.path ? next : tab));
+}
+
+export function closeEditorTab(tabs: EditorTab[], path: string, active: string | null) {
+  const next = tabs.filter((tab) => tab.path !== path);
+  const nextActive = active === path ? (next.at(-1)?.path ?? null) : active;
+  return { tabs: next, active: nextActive };
+}
+
+export function lineDiff(before: string, after: string): DiffLine[] {
+  const left = before.split("\n");
+  const right = after.split("\n");
+  if (left.length * right.length > 250_000) {
+    return [
+      { kind: "del", text: "文件较大，差异只保留整段替换" },
+      { kind: "add", text: `${right.length} 行` },
+    ];
+  }
+  const scores: number[][] = Array.from({ length: left.length + 1 }, () => Array(right.length + 1).fill(0));
+  for (let i = left.length - 1; i >= 0; i--) {
+    for (let j = right.length - 1; j >= 0; j--) {
+      scores[i]![j] =
+        left[i] === right[j] ? scores[i + 1]![j + 1]! + 1 : Math.max(scores[i + 1]![j]!, scores[i]![j + 1]!);
+    }
+  }
+  const lines: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < left.length && j < right.length) {
+    if (left[i] === right[j]) {
+      lines.push({ kind: "same", text: left[i]! });
+      i += 1;
+      j += 1;
+    } else if (scores[i + 1]![j]! >= scores[i]![j + 1]!) {
+      lines.push({ kind: "del", text: left[i]! });
+      i += 1;
+    } else {
+      lines.push({ kind: "add", text: right[j]! });
+      j += 1;
+    }
+  }
+  while (i < left.length) lines.push({ kind: "del", text: left[i++]! });
+  while (j < right.length) lines.push({ kind: "add", text: right[j++]! });
+  return lines;
+}
+
+export function agentFileContentRequest(path: string) {
+  return `file/content?path=${encodeURIComponent(path)}`;
+}
+
 /** Browser file/find reads. Session and event paths stay on the Facade. */
 export function agentFileRequest(path: string) {
   return `file?path=${encodeURIComponent(path)}`;

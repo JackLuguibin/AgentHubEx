@@ -54,7 +54,8 @@ Q --> [agent-client]
 | 用途 | 路径 | 包方法 |
 |---|---|---|
 | 会话 CRUD / 发消息 / 权限 / **事件流** | `/v1/projects/{p}/sessions`、`/v1/sessions/{id}/*` | `agent-client` facade |
-| 文件树、find、PTY（P2+） | `/v1/workspaces/{w}/agent/file\|find\|pty/...` | `agent-client` agentProxy |
+| 文件树、find、文件写入（P2 个人区） | `/v1/workspaces/{w}/agent/file\|find/...` | `agent-client` agentProxy |
+| PTY（P2+，仅 `capabilities.pty`） | `POST /v1/workspaces/{w}/pty/open`，再 WebSocket `/v1/workspaces/{w}/pty/connect?ticket=` | `agent-client` agentProxy |
 | 工作区就绪 | 默认 `GET .../status/stream`；失败则 2s 轮询 `GET /workspaces/{w}` | Query |
 | 看板实时 | `GET .../board/events` | Board 页 |
 

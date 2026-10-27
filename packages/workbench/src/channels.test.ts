@@ -24,6 +24,12 @@ describe("A12 session channel", () => {
     expect(url).not.toContain("/agent/session");
   });
 
+  it("shows the terminal only when pty capability is on", () => {
+    const src = readFileSync(join(srcDir, "Workbench.tsx"), "utf8");
+    expect(src).toContain("terminalOn && workspace?.id ? (");
+    expect(src).toContain("<TerminalPane");
+  });
+
   it("does not call agent event/session paths or a raw node address", () => {
     const src = sourceText();
     expect(src).not.toMatch(/\/agent\/event/);
