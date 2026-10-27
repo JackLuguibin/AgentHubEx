@@ -22,6 +22,7 @@ import {
 } from "@agenthub/config-bundle";
 import { AppError, forbidden, notFound } from "../errors.js";
 import { decryptSecret } from "../lib/crypto.js";
+import { recordAudit } from "../lib/audit.js";
 import { newId } from "../lib/id.js";
 import { logger } from "../lib/logger.js";
 import {
@@ -227,6 +228,29 @@ async function finishJob(
       .update(workspaces)
       .set({ status: "applying", statusReason: "waiting for agenthub-sync", updatedAt: now })
       .where(eq(workspaces.id, job.workspaceId));
+  }
+
+  if ((job.trigger === "publish" || job.trigger === "rollback") && input.status !== "running") {
+    const [ws] = await db
+      .select({ projectId: workspaces.projectId })
+      .from(workspaces)
+      .where(eq(workspaces.id, job.workspaceId))
+      .limit(1);
+    recordAudit({
+      action: "apply.autosync",
+      actorId: job.requestedBy ?? "system",
+      tenantId: job.tenantId,
+      projectId: ws?.projectId ?? null,
+      targetType: "workspace",
+      targetId: job.workspaceId,
+      meta: {
+        kind: job.kind,
+        jobId: job.id,
+        status: input.status,
+        trigger: job.trigger,
+        ...(input.error ? { error: input.error } : {}),
+      },
+    });
   }
 
   const [updated] = await db.select().from(applyJobs).where(eq(applyJobs.id, job.id)).limit(1);
@@ -447,6 +471,145 @@ export async function applyProjectConfig(
     if (last) created.push(last);
   }
   return { jobs: created };
+}
+
+const TERMINAL_APPLY = new Set(["succeeded", "failed", "partial", "skipped", "cancelled"]);
+
+/**
+ * Run one queued ApplyJob. Safe to call again: a finished job is returned as-is.
+ * Used by the hub-jobs worker so publish pushes share the P1 state machine.
+ */
+export async function runQueuedApplyJob(db: Db, applyJobId: string, env: ApplyEnv) {
+  const [existing] = await db.select().from(applyJobs).where(eq(applyJobs.id, applyJobId)).limit(1);
+  if (!existing) return null;
+  const pack = (job: ApplyJob, fresh: boolean, projectId: string | null) => ({
+    job,
+    fresh,
+    actorId: existing.requestedBy ?? "system",
+    tenantId: existing.tenantId,
+    workspaceId: existing.workspaceId,
+    projectId,
+  });
+  if (TERMINAL_APPLY.has(existing.status)) return pack(mapJob(existing), false, null);
+
+  const claim = async () => {
+    if (existing.status === "running") return existing;
+    const [row] = await db
+      .update(applyJobs)
+      .set({ status: "running", attempts: existing.attempts + 1, startedAt: new Date() })
+      .where(and(eq(applyJobs.id, applyJobId), eq(applyJobs.status, "queued")))
+      .returning();
+    return row ?? null;
+  };
+
+  const [workspace] = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, existing.workspaceId))
+    .limit(1);
+
+  if (!workspace || workspace.status === "deleted" || workspace.status === "revoked") {
+    const job = await claim();
+    if (!job) return null;
+    return pack(
+      await finishJob(db, job, {
+        status: "failed",
+        error: "工作区不存在或已撤销",
+        diff: { added: [], removed: [], changed: [] },
+        channel: "file",
+      }),
+      true,
+      workspace?.projectId ?? null,
+    );
+  }
+
+  if (workspace.status !== "ready" && workspace.status !== "idle") {
+    const job = await claim();
+    if (!job) return null;
+    return pack(
+      await finishJob(db, job, {
+        status: "skipped",
+        error: "工作区不在线，已跳过自动同步",
+        diff: { added: [], removed: [], changed: [] },
+        channel: "file",
+      }),
+      true,
+      workspace.projectId,
+    );
+  }
+
+  let effective;
+  try {
+    effective = await resolveEffectiveConfig(db, workspace.projectId, {
+      userId: workspace.ownerUserId,
+      isPlatformAdmin: false,
+    });
+  } catch (err) {
+    const job = await claim();
+    if (!job) return null;
+    return pack(
+      await finishJob(db, job, {
+        status: "failed",
+        error: err instanceof AppError ? err.message : "无法解析有效配置",
+        diff: { added: [], removed: [], changed: [] },
+        channel: "file",
+      }),
+      true,
+      workspace.projectId,
+    );
+  }
+
+  if (workspace.appliedRevisionHash === effective.hash) {
+    const job = await claim();
+    if (!job) return null;
+    return pack(
+      await finishJob(db, job, {
+        status: "skipped",
+        diff: { added: [], removed: [], changed: [] },
+        channel: "file",
+      }),
+      true,
+      workspace.projectId,
+    );
+  }
+
+  const claimed = await claim();
+  if (!claimed) return null;
+  if (claimed.targetHash !== effective.hash) {
+    await db.update(applyJobs).set({ targetHash: effective.hash }).where(eq(applyJobs.id, applyJobId));
+    claimed.targetHash = effective.hash;
+  }
+
+  let last: ApplyJob | null = null;
+  let job = claimed;
+  const startAttempt = job.attempts;
+  for (let attempt = startAttempt; attempt <= 3; attempt++) {
+    if (attempt !== startAttempt) {
+      const [again] = await db
+        .update(applyJobs)
+        .set({ status: "running", attempts: attempt, startedAt: job.startedAt ?? new Date() })
+        .where(eq(applyJobs.id, applyJobId))
+        .returning();
+      job = again ?? job;
+    }
+    try {
+      const result = await executeJob(db, job, workspace, effective.manifest, env);
+      last = result.job;
+      if (!result.retryable || result.job.status !== "failed") break;
+    } catch (err) {
+      const message = err instanceof AppError ? err.message : "配置下发失败";
+      if (!(err instanceof AppError)) logger.warn({ err, jobId: applyJobId }, "config apply failed");
+      last = await finishJob(db, job, {
+        status: "failed",
+        error: message,
+        diff: { added: [], removed: [], changed: [] },
+        channel: "file",
+      });
+      if (err instanceof AppError || attempt === 3) break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
+  }
+  return last ? pack(last, true, workspace.projectId) : null;
 }
 
 export async function listApplyJobs(

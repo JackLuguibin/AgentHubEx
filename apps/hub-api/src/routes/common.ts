@@ -8,7 +8,9 @@ import {
 import type { AppEnv } from "../context.js";
 import { AppError } from "../errors.js";
 import { recordAudit } from "../lib/audit.js";
+import { logger } from "../lib/logger.js";
 import { withIdempotency } from "../lib/idempotency.js";
+import { scheduleCommonPush } from "../services/auto-sync.js";
 import { createObjectStore } from "../lib/object-store.js";
 import { requireAuth } from "../middleware/auth.js";
 import {
@@ -42,6 +44,14 @@ function storeOf(env: AppEnv["Variables"]["env"]) {
     region: env.S3_REGION,
     root: env.COMMON_ROOT,
   });
+}
+
+async function afterCommonChange(db: AppEnv["Variables"]["db"], projectId: string) {
+  try {
+    await scheduleCommonPush(db, projectId);
+  } catch (err) {
+    logger.warn({ err, projectId }, "common auto sync was not queued");
+  }
 }
 
 function idempotencyKey(c: { req: { header: (name: string) => string | undefined } }) {
@@ -141,6 +151,7 @@ export function commonRoutes() {
         prefix,
         uploads,
       );
+      await afterCommonChange(c.get("db"), c.req.param("p"));
       return { status: 201, body };
     });
     return c.json(result.body, result.status as 201);
@@ -165,6 +176,7 @@ export function commonRoutes() {
           prefix,
           zip,
         );
+        await afterCommonChange(c.get("db"), c.req.param("p"));
         return { status: 201, body };
       },
     );
@@ -239,6 +251,7 @@ export function commonRoutes() {
       c.req.header("content-type") ?? null,
       c.req.header("if-match") ?? null,
     );
+    await afterCommonChange(c.get("db"), c.req.param("p"));
     return c.json(entry);
   });
 
@@ -246,7 +259,9 @@ export function commonRoutes() {
     const { path, action } = requestFilePath(c);
     if (!path || action !== "file") throw new AppError(400, "VALIDATION_FAILED", "path is required");
     const body = MoveCommonFileSchema.parse(await c.req.json());
-    return c.json(await moveCommonFile(c.get("db"), c.req.param("p"), actor(c), path, body.moveTo));
+    const entry = await moveCommonFile(c.get("db"), c.req.param("p"), actor(c), path, body.moveTo);
+    await afterCommonChange(c.get("db"), c.req.param("p"));
+    return c.json(entry);
   });
 
   app.delete("/projects/:p/common/files/*", async (c) => {
@@ -254,6 +269,7 @@ export function commonRoutes() {
     if (!path || action !== "file") throw new AppError(400, "VALIDATION_FAILED", "path is required");
     const recursive = c.req.query("recursive") === "1" || c.req.query("recursive") === "true";
     await deleteCommonFile(c.get("db"), c.req.param("p"), actor(c), path, recursive);
+    await afterCommonChange(c.get("db"), c.req.param("p"));
     return c.body(null, 204);
   });
 
@@ -261,16 +277,16 @@ export function commonRoutes() {
     const { path, action } = requestFilePath(c);
     if (action !== "restore" || !path) throw new AppError(404, "NOT_FOUND", "Not found");
     const body = RestoreCommonVersionSchema.parse(await c.req.json());
-    return c.json(
-      await restoreCommonVersion(
-        c.get("db"),
-        storeOf(c.get("env")),
-        c.req.param("p"),
-        actor(c),
-        path,
-        body.version,
-      ),
+    const entry = await restoreCommonVersion(
+      c.get("db"),
+      storeOf(c.get("env")),
+      c.req.param("p"),
+      actor(c),
+      path,
+      body.version,
     );
+    await afterCommonChange(c.get("db"), c.req.param("p"));
+    return c.json(entry);
   });
 
   return app;

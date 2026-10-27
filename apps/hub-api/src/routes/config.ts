@@ -15,7 +15,9 @@ import { issueSyncToken, syncPublicKey } from "../lib/sync-crypto.js";
 import { unzipStored } from "../lib/zip.js";
 import { requireAuth } from "../middleware/auth.js";
 import { recordAudit } from "../lib/audit.js";
+import { logger } from "../lib/logger.js";
 import { applyProjectConfig, listApplyJobs } from "../services/apply-engine.js";
+import { scheduleBundleAutoSync } from "../services/auto-sync.js";
 import {
   createProjectBundle,
   createTenantBundle,
@@ -163,10 +165,23 @@ export function configRoutes() {
     const result = await withIdempotency(
       c.get("redis"),
       `idem:publish:${c.req.param("b")}:${key}`,
-      async () => ({
-        status: 201,
-        body: await publishBundle(c.get("db"), c.req.param("b"), actor(c), body.changelog),
-      }),
+      async () => {
+        const revision = await publishBundle(c.get("db"), c.req.param("b"), actor(c), body.changelog);
+        try {
+          await scheduleBundleAutoSync(c.get("db"), c.get("redis"), c.req.param("b"), actor(c).userId);
+        } catch (err) {
+          logger.warn({ err, bundleId: c.req.param("b") }, "bundle auto sync was not queued");
+          recordAudit({
+            action: "apply.autosync",
+            actorId: actor(c).userId,
+            tenantId: c.get("principal")?.tenantId,
+            targetType: "bundle",
+            targetId: c.req.param("b"),
+            meta: { kind: "config", trigger: "publish", status: "failed", error: "自动同步没有进入队列" },
+          });
+        }
+        return { status: 201, body: revision };
+      },
     );
     return c.json(result.body, result.status as 201);
   });

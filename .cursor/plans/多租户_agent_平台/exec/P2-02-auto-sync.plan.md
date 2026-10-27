@@ -4,18 +4,19 @@ overview: Bundle/公共空间变更推送、回滚、受保护前缀强化。
 todos:
   - id: push-on-publish
     content: Bundle/公共空间 publish 后节流推送到在线工作区
-    status: pending
+    status: completed
   - id: rollback-safe
     content: 回滚仅恢复受管文件；用户自建文件不受影响
-    status: pending
+    status: completed
   - id: protected-prefixes
     content: 受保护前缀强制与审计完善
-    status: pending
+    status: completed
   - id: dod-autosync
     content: DoD：publish 后在线区自动同步；回滚验收同 A3 增强
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P2-02 自动同步
 
 > **索引 todo**：`phase2-auto-sync` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

@@ -38,6 +38,20 @@ const STATUS_LABEL: Record<ApplyJob["status"], { text: string; tone: BadgeTone }
   cancelled: { text: "已取消", tone: "default" },
 };
 
+const TRIGGER_LABEL: Record<ApplyJob["trigger"], string> = {
+  publish: "发布自动同步",
+  rollback: "回滚",
+  manual: "手动下发",
+  workspace_ready: "工作区就绪",
+  schedule: "定时",
+};
+
+const KIND_LABEL: Record<ApplyJob["kind"], string> = {
+  config: "配置",
+  common: "公共空间",
+  git_seed: "仓库",
+};
+
 const emptyManifest = (): Manifest => ({
   agents: [],
   mcp: [],
@@ -82,6 +96,10 @@ export function ConfigPage() {
     queryKey: ["apply-jobs", projectId],
     enabled: Boolean(projectId) && tab === "下发记录",
     queryFn: () => api.listApplyJobs(projectId),
+    refetchInterval: (query) => {
+      const items = query.state.data?.items ?? [];
+      return items.some((job) => job.status === "queued" || job.status === "running") ? 2000 : false;
+    },
   });
   const lockQuery = useQuery({
     queryKey: ["config-lock", projectId],
@@ -152,7 +170,7 @@ export function ConfigPage() {
       const succeeded = applied.jobs.filter((job) => job.status === "succeeded").length;
       toast(
         applied.jobs.length === 0
-          ? `已发布 v${revision.version}。当前没有需要更新的工作区`
+          ? `已发布 v${revision.version}。在线工作区会自动同步，结果在「下发记录」里`
           : `已发布 v${revision.version}，${succeeded}/${applied.jobs.length} 个工作区下发成功`,
       );
       await invalidate();
@@ -518,7 +536,7 @@ export function ConfigPage() {
                   ) : null}
                   {!jobsQuery.isLoading && (jobsQuery.data?.items ?? []).length === 0 ? (
                     <tr>
-                      <td colSpan={4}>还没有下发记录。发布后会出现在这里。</td>
+                      <td colSpan={4}>还没有下发记录。发布后，在线工作区的自动同步会出现在这里。</td>
                     </tr>
                   ) : null}
                   {(jobsQuery.data?.items ?? []).map((job) => {
@@ -526,14 +544,14 @@ export function ConfigPage() {
                     return (
                       <tr key={job.id}>
                         <td>
-                          <strong>{job.id.slice(0, 8)}</strong>
+                          <strong>{KIND_LABEL[job.kind]} {job.id.slice(0, 8)}</strong>
                           <small>{job.targetHash.slice(0, 12)}</small>
                         </td>
-                        <td>{job.trigger}</td>
+                        <td>{TRIGGER_LABEL[job.trigger]}</td>
                         <td>
                           <Badge tone={label.tone}>{label.text}</Badge>
                         </td>
-                        <td>{job.error ?? "Agent / MCP / Skill 已按清单校验"}</td>
+                        <td>{job.error ?? (job.status === "succeeded" ? "已按清单写好" : "等待结果")}</td>
                       </tr>
                     );
                   })}
@@ -545,7 +563,7 @@ export function ConfigPage() {
       ) : null}
 
       <Banner icon={Info} className="mt-[22px]">
-        发布流程：合并各层配置 → 生成受管文件 → 文件通道落盘，MCP 密钥走 API 通道 → 校验文件摘要。外部实例由 agenthub-sync 拉取，未连接时任务会标成部分成功。
+        发布后，在线工作区会自动同步。成功和失败都记在「下发记录」里。外部实例由 agenthub-sync 拉取，未连接时任务会标成部分成功。回滚只恢复受管文件，不会改动你自己创建的文件。
       </Banner>
 
       <Modal

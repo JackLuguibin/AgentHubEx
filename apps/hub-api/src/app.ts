@@ -4,6 +4,7 @@ import { Redis } from "ioredis";
 import { cors } from "hono/cors";
 import type { AppEnv } from "./context.js";
 import { env } from "./env.js";
+import { bindHubJobsRedis } from "./lib/hub-jobs.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { optionalAuth } from "./middleware/auth.js";
 import { requestIdMiddleware } from "./middleware/request-id.js";
@@ -29,6 +30,7 @@ export type CreateAppOptions = {
 
 export function createApp(options: CreateAppOptions = {}) {
   const appEnv = { ...env, ...options.envOverrides };
+  bindHubJobsRedis(appEnv.REDIS_URL);
   const db = options.db ?? createDb(appEnv.DATABASE_URL);
   const redis =
     options.redis ?? new Redis(appEnv.REDIS_URL, { maxRetriesPerRequest: 1 });

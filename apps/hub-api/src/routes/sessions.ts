@@ -16,6 +16,7 @@ import type { HubRuntime } from "../lib/hub-runtime.js";
 import { startOwnedWorkspace, stopOwnedWorkspace } from "../services/scheduler.js";
 import { requireAuth } from "../middleware/auth.js";
 import { publishBoard } from "../lib/board-events.js";
+import { releaseDeferredAutoSync } from "../services/auto-sync.js";
 import { cursorMissing, streamSeqs } from "../lib/sse-cursor.js";
 import { addDailyTokenUsage } from "../lib/token-quota.js";
 import { getIssue } from "../services/issues.js";
@@ -525,11 +526,15 @@ export function sessionRoutes() {
                     ? "failed"
                     : null;
               if (mapped) {
-                void c
-                  .get("db")
+                const workspaceId = session.workspaceId;
+                const db = c.get("db");
+                void db
                   .update(agentSessions)
                   .set({ status: mapped, updatedAt: new Date() })
                   .where(eq(agentSessions.id, session.id))
+                  .then(() => {
+                    if (mapped === "idle") return releaseDeferredAutoSync(db, redis, workspaceId);
+                  })
                   .catch(() => undefined);
               }
             }

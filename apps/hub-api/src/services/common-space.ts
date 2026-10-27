@@ -30,6 +30,7 @@ import {
   snapshotHash,
 } from "@agenthub/common-fs";
 import { AppError, conflict, forbidden, notFound } from "../errors.js";
+import { recordAudit } from "../lib/audit.js";
 import { newId } from "../lib/id.js";
 import { logger } from "../lib/logger.js";
 import type { ObjectStore } from "../lib/object-store.js";
@@ -62,6 +63,48 @@ function unwrap<T>(fn: () => T): T {
     if (mapped) throw mapped;
     throw err;
   }
+}
+
+function guardWrite(
+  opened: { row: { tenantId: string }; prefixes: string[]; allowProtected: boolean },
+  actor: Actor,
+  projectId: string,
+  raw: string,
+) {
+  try {
+    return unwrap(() => assertWritable(raw, opened.prefixes, opened.allowProtected));
+  } catch (err) {
+    if (err instanceof AppError && err.code === "PROTECTED_PATH") {
+      recordAudit({
+        action: "common.protected_denied",
+        actorId: actor.userId,
+        tenantId: opened.row.tenantId,
+        projectId,
+        targetType: "common_file",
+        targetId: raw,
+        meta: { path: raw, protectedPrefixes: opened.prefixes },
+      });
+    }
+    throw err;
+  }
+}
+
+function auditProtectedWrite(
+  opened: { row: { tenantId: string }; prefixes: string[] },
+  actor: Actor,
+  projectId: string,
+  path: string,
+) {
+  if (!isProtectedPath(path, opened.prefixes)) return;
+  recordAudit({
+    action: "common.protected_write",
+    actorId: actor.userId,
+    tenantId: opened.row.tenantId,
+    projectId,
+    targetType: "common_file",
+    targetId: path,
+    meta: { path, protectedPrefixes: opened.prefixes },
+  });
 }
 
 async function txn<T>(db: Db, fn: (tx: Query) => Promise<T>): Promise<T> {
@@ -282,7 +325,7 @@ export async function putCommonFile(
   ifMatch: string | null,
 ) {
   const opened = await openProject(db, projectId, actor, "write");
-  const path = unwrap(() => assertWritable(rawPath, opened.prefixes, opened.allowProtected));
+  const path = guardWrite(opened, actor, projectId, rawPath);
   const mime = unwrap(() => normalizeMime(path, declaredMime));
   if (body.length > LIMITS.maxFileBytes) {
     throw new AppError(400, "VALIDATION_FAILED", "单个文件超过 32MB");
@@ -357,12 +400,13 @@ export async function putCommonFile(
   });
 
   logger.info({ action: "common.write", projectId, path, userId: actor.userId }, "common file write");
+  auditProtectedWrite(opened, actor, projectId, path);
   return entryByPath(db, projectId, path, opened.prefixes);
 }
 
 export async function createCommonDir(db: Db, projectId: string, actor: Actor, rawPath: string) {
   const opened = await openProject(db, projectId, actor, "write");
-  const path = unwrap(() => assertWritable(rawPath, opened.prefixes, opened.allowProtected));
+  const path = guardWrite(opened, actor, projectId, rawPath);
   const existing = await findActive(db, projectId, path);
   if (existing?.isDir) return toEntry(existing, await displayName(db, existing.uploadedBy), opened.prefixes);
   if (existing) throw conflict("路径与已有文件冲突");
@@ -396,8 +440,8 @@ async function displayName(db: Query, userId: string) {
 
 export async function moveCommonFile(db: Db, projectId: string, actor: Actor, rawPath: string, rawDest: string) {
   const opened = await openProject(db, projectId, actor, "write");
-  const path = unwrap(() => assertWritable(rawPath, opened.prefixes, opened.allowProtected));
-  const dest = unwrap(() => assertWritable(rawDest, opened.prefixes, opened.allowProtected));
+  const path = guardWrite(opened, actor, projectId, rawPath);
+  const dest = guardWrite(opened, actor, projectId, rawDest);
   if (path === dest) return entryByPath(db, projectId, path, opened.prefixes);
   const source = await findActive(db, projectId, path);
   if (!source) throw notFound("File not found");
@@ -410,7 +454,7 @@ export async function moveCommonFile(db: Db, projectId: string, actor: Actor, ra
   );
   const moves = affected.map((row) => {
     const next = row.file.path === path ? dest : `${dest}${row.file.path.slice(path.length)}`;
-    unwrap(() => assertWritable(next, opened.prefixes, opened.allowProtected));
+    guardWrite(opened, actor, projectId, next);
     return { id: row.file.id, next };
   });
   const taken = new Set(rows.map((row) => row.file.path));
@@ -429,6 +473,7 @@ export async function moveCommonFile(db: Db, projectId: string, actor: Actor, ra
     }
   });
   logger.info({ action: "common.write", projectId, path, dest, userId: actor.userId }, "common file move");
+  auditProtectedWrite(opened, actor, projectId, dest);
   return entryByPath(db, projectId, dest, opened.prefixes);
 }
 
@@ -440,7 +485,7 @@ export async function deleteCommonFile(
   recursive: boolean,
 ) {
   const opened = await openProject(db, projectId, actor, "write");
-  const path = unwrap(() => assertWritable(rawPath, opened.prefixes, opened.allowProtected));
+  const path = guardWrite(opened, actor, projectId, rawPath);
   const source = await findActive(db, projectId, path);
   if (!source) throw notFound("File not found");
   const rows = await loadLive(db, projectId);
@@ -459,6 +504,7 @@ export async function deleteCommonFile(
     await adjustUsage(tx, projectId, -bytes);
   });
   logger.info({ action: "common.write", projectId, path, userId: actor.userId }, "common file delete");
+  auditProtectedWrite(opened, actor, projectId, path);
 }
 
 export async function listCommonVersions(db: Db, projectId: string, actor: Actor, rawPath: string) {
@@ -491,7 +537,7 @@ export async function restoreCommonVersion(
   version: number,
 ) {
   const opened = await openProject(db, projectId, actor, "write");
-  const path = unwrap(() => assertWritable(rawPath, opened.prefixes, opened.allowProtected));
+  const path = guardWrite(opened, actor, projectId, rawPath);
   const row = await findActive(db, projectId, path);
   if (!row || row.isDir) throw notFound("File not found");
   const [stored] = await db
@@ -558,7 +604,21 @@ export async function putCommonSettings(
       }
     }
   });
-  return getCommonSettings(db, projectId, actor);
+  const saved = await getCommonSettings(db, projectId, actor);
+  recordAudit({
+    action: "common.protected_prefixes",
+    actorId: actor.userId,
+    tenantId: opened.row.tenantId,
+    projectId,
+    targetType: "project",
+    targetId: projectId,
+    meta: {
+      protectedPrefixes: saved.protectedPrefixes,
+      syncPolicy: saved.syncPolicy,
+      quotaBytes: saved.quotaBytes,
+    },
+  });
+  return saved;
 }
 
 export async function uploadCommonFiles(
