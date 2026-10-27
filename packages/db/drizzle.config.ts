@@ -8,6 +8,7 @@ export default defineConfig({
     "./src/schema/workspaces.ts",
     "./src/schema/issues.ts",
     "./src/schema/api-keys.ts",
+    "./src/schema/config.ts",
   ],
 
   out: "./drizzle",

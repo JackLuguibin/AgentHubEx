@@ -13,6 +13,12 @@ export const env = createEnv({
       .string()
       .min(32)
       .default("dev-platform-dek-32bytes-minimum!!"),
+    APPLY_ROOT: z.string().default("data/apply"),
+    BLOB_ROOT: z.string().default("data/blobs"),
+    PUBLIC_BASE_URL: z.string().default("http://localhost:8080"),
+    SYNC_TOKEN_SECRET: z.string().min(16).default("dev-sync-token-secret!!"),
+    SYNC_ED25519_PRIVATE_KEY: z.string().optional(),
+    SYNC_ED25519_PUBLIC_KEY: z.string().optional(),
     PORT: z.coerce.number().int().default(8080),
     AGENTHUB_BOOTSTRAP_ADMIN_EMAIL: z.string().email().default("admin@example.com"),
     AGENTHUB_BOOTSTRAP_ADMIN_PASSWORD: z.string().min(10).default("admin-password-change-me"),

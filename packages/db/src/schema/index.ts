@@ -14,3 +14,11 @@ export { runtimeInstances, projectRuntimeBindings } from "./runtime.js";
 export { workspaces, agentSessions } from "./workspaces.js";
 export { projectIssues } from "./issues.js";
 export { hubApiKeys } from "./api-keys.js";
+export {
+  applyJobs,
+  configAssignments,
+  configBlobs,
+  configBundles,
+  configRevisions,
+  jobsOutbox,
+} from "./config.js";

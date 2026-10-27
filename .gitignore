@@ -47,6 +47,9 @@ secrets/
 .DS_Store
 Thumbs.db
 
+# Local apply payloads and content-addressed config blobs
+data/
+
 # Logs & temp
 logs/
 *.log

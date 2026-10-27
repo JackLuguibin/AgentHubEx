@@ -14,6 +14,7 @@
   "dependencies": {
     "@agenthub/adapter-opencode": "workspace:*",
     "@agenthub/auth": "workspace:*",
+    "@agenthub/config-bundle": "workspace:*",
     "@agenthub/db": "workspace:*",
     "@agenthub/domain": "workspace:*",
     "@agenthub/runtime-contract": "workspace:*",

@@ -2,6 +2,7 @@ import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import {
   LoginReqSchema,
   LoginResSchema,
+  ManifestSchema,
   MeSchema,
   RegisterReqSchema,
   SwitchTenantReqSchema,
@@ -17,6 +18,7 @@ import {
   switchTenant,
 } from "../services/auth.js";
 import { getUserOrThrow } from "../services/users.js";
+import { saveUserOverlay } from "../services/config-bundles.js";
 import { unauthenticated } from "../errors.js";
 import { meCredentialRoutes } from "./credentials.js";
 
@@ -256,5 +258,17 @@ export function meRoutes() {
   });
 
   app.route("/", meCredentialRoutes());
+
+  app.put("/projects/:p/overlay", async (c) => {
+    const body = ManifestSchema.parse(await c.req.json());
+    const principal = c.get("principal")!;
+    return c.json(
+      await saveUserOverlay(c.get("db"), c.req.param("p"), {
+        userId: principal.userId,
+        isPlatformAdmin: principal.isPlatformAdmin,
+      }, body),
+    );
+  });
+
   return app;
 }

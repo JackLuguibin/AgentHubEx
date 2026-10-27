@@ -18,6 +18,11 @@ export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
     return;
   }
 
+  if (token.startsWith("st1.")) {
+    await next();
+    return;
+  }
+
   try {
     const claims = await verifyAccessToken(token, c.get("env").JWT_ACCESS_SECRET);
     const db = c.get("db");

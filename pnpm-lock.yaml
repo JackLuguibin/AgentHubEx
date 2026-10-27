@@ -27,6 +27,25 @@ importers:
         specifier: ^8.18.1
         version: 8.72.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
 
+  apps/agenthub-sync:
+    dependencies:
+      '@agenthub/config-bundle':
+        specifier: workspace:*
+        version: link:../../packages/config-bundle
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.5
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.15
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.32.0)
+
   apps/hub-api:
     dependencies:
       '@agenthub/adapter-opencode':
@@ -35,6 +54,9 @@ importers:
       '@agenthub/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@agenthub/config-bundle':
+        specifier: workspace:*
+        version: link:../../packages/config-bundle
       '@agenthub/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -205,6 +227,28 @@ importers:
       jose:
         specifier: ^5.9.6
         version: 5.10.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.5
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.5)(lightningcss@1.32.0)
+
+  packages/config-bundle:
+    dependencies:
+      '@agenthub/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@agenthub/runtime-contract':
+        specifier: workspace:*
+        version: link:../runtime-contract
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

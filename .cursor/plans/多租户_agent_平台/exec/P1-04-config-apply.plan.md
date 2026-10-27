@@ -4,24 +4,25 @@ overview: 配置中心 Tabs/发布下发/回滚 + agenthub-sync。
 todos:
   - id: pkg-config-bundle
     content: 实现 packages/config-bundle：合并优先级、渲染 opencode.json/文件树
-    status: pending
+    status: completed
   - id: bundle-api
     content: ConfigBundle draft/publish/pin/rollback + ApplyJob API
-    status: pending
+    status: completed
   - id: config-center-ui
     content: 配置中心 Tabs：Agent/MCP/Skill/AGENTS.md/下发记录
-    status: pending
+    status: completed
   - id: apply-engine
     content: Apply 引擎：解析→渲染→API/文件通道→校验
-    status: pending
+    status: completed
   - id: agenthub-sync
     content: apps/agenthub-sync sidecar：拉取 Bundle 落盘（external）
-    status: pending
+    status: completed
   - id: dod-apply
     content: DoD：发布后同步可见 Agent/MCP/Skill；回滚恢复受管文件（A2/A3）
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P1-04 配置中心与 Apply
 
 > **索引 todo**：`phase1-config-apply` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

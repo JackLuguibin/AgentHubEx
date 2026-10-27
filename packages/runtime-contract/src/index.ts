@@ -175,6 +175,13 @@ export const EnvelopeTypeSchema = z.enum([
   "error",
 ]);
 
+export {
+  CLAUDE_PATHS,
+  MANAGED_MANIFEST_PATH,
+  OPENCODE_PATHS,
+  isAllowedManagedPath,
+} from "./bundle-mapping.js";
+
 export function makeEnvelope<T extends EnvelopeType>(
   sessionId: string,
   seq: number,

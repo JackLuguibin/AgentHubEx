@@ -11,6 +11,7 @@
     { "path": "../../packages/auth" },
     { "path": "../../packages/db" },
     { "path": "../../packages/domain" },
+    { "path": "../../packages/config-bundle" },
     { "path": "../../packages/runtime-contract" },
     { "path": "../../packages/adapter/opencode" }
   ]

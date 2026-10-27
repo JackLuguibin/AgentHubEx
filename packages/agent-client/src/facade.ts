@@ -1,11 +1,19 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import type {
   AgentSession,
+  ApplyConfigReq,
+  ApplyJob,
+  Bundle,
+  ConfigLock,
+  CreateBundleReq,
   CreateInvitationReq,
   CreateProjectReq,
   CreateTenantReq,
   DirectoryUser,
+  EffectiveConfig,
+  ImportSkillReq,
   Invitation,
+  Manifest,
   Me,
   PatchInstanceReq,
   PatchProjectReq,
@@ -16,7 +24,9 @@ import type {
   PutProjectBindingsReq,
   PutUserBindingsReq,
   RegisterInstanceReq,
+  Revision,
   RuntimeInstance,
+  SkillRef,
   Tenant,
   TenantMember,
   TestInstanceReq,
@@ -306,6 +316,75 @@ export function createFacadeClient(http: KyInstance) {
             createdAt: string;
           }>
         >();
+    },
+
+    async listProjectBundles(projectId: string) {
+      return http.get(`v1/projects/${projectId}/bundles`).json<Page<Bundle>>();
+    },
+
+    async createProjectBundle(projectId: string, input: CreateBundleReq) {
+      return http.post(`v1/projects/${projectId}/bundles`, { json: input }).json<Bundle>();
+    },
+
+    async updateBundleDraft(bundleId: string, draft: Manifest, etag: string) {
+      return http
+        .put(`v1/bundles/${bundleId}/draft`, {
+          json: draft,
+          headers: { "If-Match": etag },
+        })
+        .json<Bundle>();
+    },
+
+    async publishBundle(bundleId: string, changelog?: string) {
+      return http
+        .post(`v1/bundles/${bundleId}/publish`, {
+          json: { changelog },
+          headers: { "Idempotency-Key": crypto.randomUUID() },
+        })
+        .json<Revision>();
+    },
+
+    async listBundleRevisions(bundleId: string) {
+      return http.get(`v1/bundles/${bundleId}/revisions`).json<Page<Revision>>();
+    },
+
+    async rollbackBundle(bundleId: string, revisionId: string) {
+      return http
+        .post(`v1/bundles/${bundleId}/rollback`, { json: { revisionId } })
+        .json<Revision>();
+    },
+
+    async importSkill(bundleId: string, input: ImportSkillReq) {
+      return http.post(`v1/bundles/${bundleId}/skills/import`, { json: input }).json<SkillRef>();
+    },
+
+    async getEffectiveConfig(projectId: string) {
+      return http.get(`v1/projects/${projectId}/config/effective`).json<EffectiveConfig>();
+    },
+
+    async getConfigLock(projectId: string) {
+      return http.get(`v1/projects/${projectId}/config/lock`).json<ConfigLock>();
+    },
+
+    async putConfigLock(projectId: string, lock: ConfigLock) {
+      return http.put(`v1/projects/${projectId}/config/lock`, { json: lock }).json<ConfigLock>();
+    },
+
+    async applyConfig(projectId: string, input: ApplyConfigReq = {}) {
+      return http
+        .post(`v1/projects/${projectId}/config/apply`, {
+          json: input,
+          headers: { "Idempotency-Key": crypto.randomUUID() },
+        })
+        .json<{ jobs: ApplyJob[] }>();
+    },
+
+    async listApplyJobs(projectId: string) {
+      return http.get(`v1/projects/${projectId}/apply-jobs`).json<Page<ApplyJob>>();
+    },
+
+    async saveOverlay(projectId: string, draft: Manifest) {
+      return http.put(`v1/me/projects/${projectId}/overlay`, { json: draft }).json<Revision>();
     },
 
     subscribeSessionEvents(
