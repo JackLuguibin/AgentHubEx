@@ -17,7 +17,9 @@ import { agentProxyRoutes } from "./routes/agent-proxy.js";
 import { issueRoutes } from "./routes/issues.js";
 import { membershipRoutes } from "./routes/memberships.js";
 import { projectRoutes } from "./routes/projects.js";
+import { llmProxyRoutes } from "./routes/llm-proxy.js";
 import { sessionRoutes } from "./routes/sessions.js";
+import { usageRoutes } from "./routes/usage.js";
 import { nodeRoutes } from "./routes/nodes.js";
 import { syncRoutes } from "./routes/sync.js";
 import { tenantRoutes } from "./routes/tenants.js";
@@ -115,6 +117,7 @@ export function createApp(options: CreateAppOptions = {}) {
   v1.route("/", agentProxyRoutes());
   v1.route("/", issueRoutes());
   v1.route("/", sessionRoutes());
+  v1.route("/", usageRoutes());
   v1.route("/", configRoutes());
   v1.route("/", commonRoutes());
 
@@ -128,6 +131,7 @@ export function createApp(options: CreateAppOptions = {}) {
   });
   app.get("/v1/openapi.json", (c) => c.json(openApiDoc));
 
+  app.route("/llm", llmProxyRoutes());
   app.route("/v1", v1);
 
   return { app, db, redis, env: appEnv };

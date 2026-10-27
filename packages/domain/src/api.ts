@@ -317,6 +317,8 @@ export const UpsertCredentialReqSchema = z.object({
   secret: z.string().min(1).optional(),
   metadata: CredentialMetaSchema.optional(),
   status: z.enum(["active", "disabled"]).optional(),
+  /** graceful keeps the session snapshot; immediate revokes that snapshot. */
+  rotationMode: z.enum(["graceful", "immediate"]).optional(),
 });
 
 export const UpsertProjectCredentialReqSchema = UpsertCredentialReqSchema.extend({

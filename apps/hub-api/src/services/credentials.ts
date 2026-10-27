@@ -91,6 +91,43 @@ export async function listCredentialOptions(
   });
 }
 
+/** New version is current. immediate revokes the previous snapshot; graceful leaves it usable. */
+async function insertCredentialVersion(
+  db: Db,
+  input: {
+    kind: "user" | "project";
+    credentialId: string;
+    previousVersion: number;
+    secret: string;
+    platformDek: string;
+    createdBy: string;
+    rotationMode?: "graceful" | "immediate";
+  },
+) {
+  const version = input.previousVersion + 1;
+  await db.insert(credentialVersions).values({
+    credentialKind: input.kind,
+    credentialId: input.credentialId,
+    version,
+    secretCiphertext: encryptSecret(input.secret, input.platformDek),
+    keyVersion: 1,
+    createdBy: input.createdBy,
+  });
+  if (input.rotationMode === "immediate") {
+    await db
+      .update(credentialVersions)
+      .set({ revokedAt: new Date() })
+      .where(
+        and(
+          eq(credentialVersions.credentialKind, input.kind),
+          eq(credentialVersions.credentialId, input.credentialId),
+          eq(credentialVersions.version, input.previousVersion),
+        ),
+      );
+  }
+  return version;
+}
+
 export async function listUserCredentials(db: Db, userId: string) {
   const rows = await db
     .select()
@@ -149,6 +186,7 @@ export async function updateUserCredential(
     secret?: string;
     metadata?: Record<string, unknown>;
     status?: "active" | "disabled";
+    rotationMode?: "graceful" | "immediate";
   },
 ) {
   const [row] = await db
@@ -161,15 +199,15 @@ export async function updateUserCredential(
   let version = row.currentVersion;
   let last4 = row.last4;
   if (input.secret) {
-    version += 1;
     last4 = last4OfSecret(input.secret);
-    await db.insert(credentialVersions).values({
-      credentialKind: "user",
+    version = await insertCredentialVersion(db, {
+      kind: "user",
       credentialId,
-      version,
-      secretCiphertext: encryptSecret(input.secret, platformDek),
-      keyVersion: 1,
+      previousVersion: row.currentVersion,
+      secret: input.secret,
+      platformDek,
       createdBy: userId,
+      rotationMode: input.rotationMode,
     });
   }
 
@@ -297,6 +335,7 @@ export async function updateProjectCredential(
     status?: "active" | "disabled";
     allowedRoles?: string[];
     isDefault?: boolean;
+    rotationMode?: "graceful" | "immediate";
   },
 ) {
   const access = await resolveProjectAccess(db, projectId, userId, isPlatformAdmin);
@@ -335,15 +374,15 @@ export async function updateProjectCredential(
   let version = row.currentVersion;
   let last4 = row.last4;
   if (input.secret) {
-    version += 1;
     last4 = last4OfSecret(input.secret);
-    await db.insert(credentialVersions).values({
-      credentialKind: "project",
+    version = await insertCredentialVersion(db, {
+      kind: "project",
       credentialId,
-      version,
-      secretCiphertext: encryptSecret(input.secret, platformDek),
-      keyVersion: 1,
+      previousVersion: row.currentVersion,
+      secret: input.secret,
+      platformDek,
       createdBy: userId,
+      rotationMode: input.rotationMode,
     });
   }
 

@@ -18,7 +18,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { publishBoard } from "../lib/board-events.js";
 import { releaseDeferredAutoSync } from "../services/auto-sync.js";
 import { cursorMissing, streamSeqs } from "../lib/sse-cursor.js";
-import { addDailyTokenUsage } from "../lib/token-quota.js";
+import { recordUsage } from "../services/usage.js";
 import { getIssue } from "../services/issues.js";
 import {
   abortSession,
@@ -72,6 +72,8 @@ function runtimeOf(env: AppEnv["Variables"]["env"], redis: AppEnv["Variables"]["
       opencode: env.WORKER_OPENCODE_IMAGE,
       claude: env.WORKER_CLAUDE_IMAGE,
     },
+    publicBaseUrl: env.PUBLIC_BASE_URL,
+    llmProxySecret: env.LLM_PROXY_SECRET,
   };
 }
 
@@ -513,12 +515,28 @@ export function sessionRoutes() {
             );
             write(`id: ${seq}\nevent: ${envelope.type}\ndata: ${data}\n\n`);
             if (envelope.type === "usage") {
-              const usage = envelope.data as { inputTokens?: number; outputTokens?: number };
-              await addDailyTokenUsage(
-                redis,
-                session.tenantId,
-                (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
-              );
+              const usage = envelope.data as {
+                model?: string;
+                inputTokens?: number;
+                outputTokens?: number;
+                cacheRead?: number;
+                cost?: number;
+              };
+              const db = c.get("db");
+              void recordUsage(db, redis, {
+                tenantId: session.tenantId,
+                projectId: session.projectId,
+                userId: session.ownerUserId,
+                sessionId: session.id,
+                credentialSource: session.credentialSource as "user" | "project",
+                credentialId: session.credentialId,
+                model: usage.model ?? "unknown",
+                inputTokens: usage.inputTokens ?? 0,
+                outputTokens: usage.outputTokens ?? 0,
+                cacheReadTokens: usage.cacheRead ?? 0,
+                costMicros: typeof usage.cost === "number" ? Math.round(usage.cost * 1_000_000) : null,
+                source: "runtime_event",
+              }).catch(() => undefined);
             }
             if (envelope.type === "session.status") {
               const status = (envelope.data as { status?: string }).status;

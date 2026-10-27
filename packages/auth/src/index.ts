@@ -4,10 +4,13 @@ export {
   verifyAccessToken,
   signRefreshToken,
   verifyRefreshToken,
+  signLlmProxyToken,
+  verifyLlmProxyToken,
   type AccessClaims,
   type AccessTokenPayload,
   type RefreshClaims,
   type RefreshTokenPayload,
+  type LlmProxyClaims,
 } from "./jwt.js";
 export {
   can,

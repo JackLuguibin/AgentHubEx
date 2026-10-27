@@ -11,7 +11,7 @@ import {
   userCredentials,
   workspaces,
 } from "@agenthub/db";
-import { can, effectiveProjectRole, type ProjectRole } from "@agenthub/auth";
+import { can, effectiveProjectRole, signLlmProxyToken, type ProjectRole } from "@agenthub/auth";
 import type { AgentSession, CreateSessionReqSchema } from "@agenthub/domain";
 import { DEFAULT_CAPABILITIES, capabilitiesForRuntime, type InstanceCtx } from "@agenthub/runtime-contract";
 import { adapterFor } from "./runtime-adapter.js";
@@ -811,6 +811,49 @@ export async function respondSessionPermission(
   });
 }
 
+async function injectLlmProxy(
+  db: Db,
+  row: typeof agentSessions.$inferSelect,
+  ctx: InstanceCtx,
+  runtime: HubRuntime,
+) {
+  if (!row.runtimeSessionRef) return;
+  const provider = await providerName(db, row.credentialSource, row.credentialId);
+  const token = await signLlmProxyToken(
+    {
+      sub: row.ownerUserId,
+      sid: row.id,
+      wid: row.workspaceId,
+      tid: row.tenantId,
+      pid: row.projectId,
+    },
+    runtime.llmProxySecret,
+  );
+  const baseUrl = `${runtime.publicBaseUrl.replace(/\/$/, "")}/llm/${provider}`;
+  const adapter = adapterFor(row.runtimeType);
+  if (!adapter.setCredential) return;
+  await adapter.setCredential(ctx, { provider, secret: token, baseUrl }, { sessionRef: row.runtimeSessionRef });
+}
+
+async function providerName(db: Db, source: string, credentialId: string) {
+  if (source === "user") {
+    const [cred] = await db
+      .select({ provider: userCredentials.provider })
+      .from(userCredentials)
+      .where(eq(userCredentials.id, credentialId))
+      .limit(1);
+    if (!cred) throw new AppError(409, "CREDENTIAL_REQUIRED", "Credential is not active");
+    return cred.provider;
+  }
+  const [cred] = await db
+    .select({ provider: projectCredentials.provider })
+    .from(projectCredentials)
+    .where(eq(projectCredentials.id, credentialId))
+    .limit(1);
+  if (!cred) throw new AppError(409, "CREDENTIAL_REQUIRED", "Credential is not active");
+  return cred.provider;
+}
+
 export async function sendMessage(
   db: Db,
   sessionId: string,
@@ -852,6 +895,7 @@ export async function sendMessage(
   if (!inst) throw conflict("Runtime instance missing", { code: "UPSTREAM_UNAVAILABLE" });
 
   const ctx = toInstanceCtx(inst, runtime.platformDek, runtime.runtimeMock);
+  await injectLlmProxy(db, row, ctx, runtime);
   const messageId = newId();
   await adapterFor(row.runtimeType).sendMessage(ctx, row.runtimeSessionRef, {
     parts: input.parts as never,

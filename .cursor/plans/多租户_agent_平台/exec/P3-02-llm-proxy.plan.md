@@ -4,15 +4,16 @@ overview: LLM Proxy 与按凭据来源计量。
 todos:
   - id: llm-proxy
     content: Hub LLM Proxy：短时上游 token；Runtime 不持真实 Key
-    status: pending
+    status: completed
   - id: usage-by-source
     content: usage 记录 credentialSource/credentialId/userId/projectId
-    status: pending
+    status: completed
   - id: dod-no-key-in-container
     content: DoD：容器内无 Provider Key；计量可区分个人/项目
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P3-02 LLM Proxy
 
 > **索引 todo**：`phase3-llm-proxy` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

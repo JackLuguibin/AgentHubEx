@@ -7,6 +7,11 @@ import { AppError, unauthenticated } from "../errors.js";
 
 export const optionalAuth = createMiddleware<AppEnv>(async (c, next) => {
   c.set("principal", null);
+  // LLM Proxy authenticates its own session token. An access-token parse would reject it.
+  if (c.req.path === "/llm" || c.req.path.startsWith("/llm/")) {
+    await next();
+    return;
+  }
   const header = c.req.header("authorization");
   if (!header?.startsWith("Bearer ")) {
     await next();

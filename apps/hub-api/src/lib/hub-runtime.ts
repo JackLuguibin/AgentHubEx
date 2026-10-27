@@ -7,4 +7,7 @@ export type HubRuntime = {
   nodeCaDir: string;
   minAgentVersion: string;
   workerImages: { opencode: string; claude: string };
+  /** Runtime base URL for LLM calls. The provider key stays on the Hub. */
+  publicBaseUrl: string;
+  llmProxySecret: string;
 };

@@ -36,6 +36,13 @@
       "when": 1730000004000,
       "tag": "0004_p2_nodes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1730000005000,
+      "tag": "0005_p3_usage",
+      "breakpoints": true
     }
   ]
 }

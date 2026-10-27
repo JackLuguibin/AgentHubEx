@@ -9,6 +9,8 @@ export const env = createEnv({
     REDIS_URL: z.string().default("redis://localhost:6379"),
     JWT_ACCESS_SECRET: z.string().min(16).default("dev-access-secret-change-me"),
     JWT_REFRESH_SECRET: z.string().min(16).default("dev-refresh-secret-change-me"),
+    /** Signs runtime LLM proxy tokens. Must not equal JWT_ACCESS_SECRET. */
+    LLM_PROXY_SECRET: z.string().min(16).default("dev-llm-proxy-secret-change"),
     PLATFORM_DEK: z
       .string()
       .min(32)
@@ -52,6 +54,7 @@ export const env = createEnv({
     NODE_MTLS_PORT: z.coerce.number().int().nonnegative().default(0),
     MIN_AGENT_VERSION: z.string().default("0.1.0"),
     WORKER_OPENCODE_IMAGE: z.string().default("agenthub/worker-opencode"),
+    WORKER_CLAUDE_IMAGE: z.string().default("agenthub/worker-claude"),
     IDLE_TTL_MS: z.coerce.number().int().positive().default(30 * 60 * 1000),
     STOP_TTL_MS: z.coerce.number().int().positive().default(24 * 60 * 60 * 1000),
   },
