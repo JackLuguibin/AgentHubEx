@@ -16,10 +16,22 @@ import {
   MoreHorizontal,
   PanelLeft,
   Search,
+  Shield,
+  UserRound,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthProvider.js";
 import { useTenant } from "../auth/TenantProvider.js";
 import { TopbarSwitcher } from "../components/TopbarSwitcher.js";
+import {
+  canUseAdminMode,
+  effectiveShellMode,
+  readStoredShellMode,
+  routeAllowed,
+  SHELL_MODE_STORAGE_KEY,
+  shellFallbackPath,
+  shellNav,
+  type ShellMode,
+} from "../lib/shell-mode.js";
 import {
   filterSwitcherTenants,
   isProjectUsable,
@@ -123,6 +135,11 @@ export function ShellLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem("ah.sidebar") === "collapsed",
   );
+  const [modePreference, setModePreference] = useState<ShellMode>(() =>
+    readStoredShellMode(
+      typeof localStorage === "undefined" ? null : localStorage.getItem(SHELL_MODE_STORAGE_KEY),
+    ),
+  );
   const workbench = location.pathname.includes("/workbench");
   const toggleSidebar = () => {
     setSidebarCollapsed((value) => {
@@ -138,6 +155,33 @@ export function ShellLayout() {
     projects.find((p) => p.id === activeProjectId) ??
     projects.find((p) => p.id === projectId) ??
     null;
+  const isPlatformAdmin = Boolean(user?.isPlatformAdmin);
+  const tenantRole = tenant?.role ?? null;
+  const projectRole = activeProject?.myRole ?? null;
+  const shellAccess = { isPlatformAdmin, tenantRole, projectRole };
+  const knownAdmin =
+    isPlatformAdmin || tenantRole === "owner" || tenantRole === "admin";
+  const accessPending = loadingProjects && !knownAdmin;
+  const mode = effectiveShellMode(modePreference, shellAccess, accessPending);
+  const nav = useMemo(
+    () => shellNav(mode, { isPlatformAdmin, tenantRole, projectRole }),
+    [mode, isPlatformAdmin, tenantRole, projectRole],
+  );
+  const showModeSwitch = !accessPending && canUseAdminMode(shellAccess);
+  const projectUsable = Boolean(activeProject && isProjectUsable(activeProject));
+  const managementItems = managementNav.filter((item) =>
+    nav.management.includes(item.key as "tenants" | "projects"),
+  );
+  const workspaceItems = workspaceNav.filter((item) => nav.workspace.includes(item.key));
+  const accountItems = adminNav.filter((item) => nav.account.includes(item.key));
+  const projectAdminItems = projectUsable
+    ? adminNav.filter((item) => nav.admin.includes(item.key))
+    : [];
+
+  const chooseMode = (next: ShellMode) => {
+    setModePreference(next);
+    localStorage.setItem(SHELL_MODE_STORAGE_KEY, next);
+  };
 
   const crumb = useMemo(() => {
     const seg = location.pathname.split("/").filter(Boolean);
@@ -185,6 +229,26 @@ export function ShellLayout() {
     toast,
   ]);
 
+  useEffect(() => {
+    if (accessPending || loadingProjects) return;
+    if (routeAllowed(location.pathname, nav)) return;
+    const next = shellFallbackPath(nav, {
+      tenantId,
+      projectId: projectUsable ? activeProjectId : null,
+      projectUsable,
+    });
+    if (next !== location.pathname) navigate(next, { replace: true });
+  }, [
+    accessPending,
+    loadingProjects,
+    location.pathname,
+    nav,
+    tenantId,
+    activeProjectId,
+    projectUsable,
+    navigate,
+  ]);
+
   const switchableTenants = filterSwitcherTenants(user?.tenants ?? []);
 
   return (
@@ -202,13 +266,11 @@ export function ShellLayout() {
       >
         <Link
           className="flex items-center gap-[9px] px-2 text-[21px] font-[750] tracking-[-0.8px] text-ah-text no-underline"
-          to={
-            activeProjectId && isProjectUsable(activeProject)
-              ? `/p/${activeProjectId}/overview`
-              : tenantId
-                ? `/t/${tenantId}/projects`
-                : "/projects"
-          }
+          to={shellFallbackPath(nav, {
+            tenantId,
+            projectId: projectUsable ? activeProjectId : null,
+            projectUsable,
+          })}
         >
           <span className="relative inline-flex h-[31px] w-[29px] items-center justify-center rounded-lg bg-ah-accent text-[17px] text-white">
             a
@@ -236,16 +298,19 @@ export function ShellLayout() {
             sidebarCollapsed && "min-[681px]:justify-center min-[681px]:px-0",
           )}
           onClick={() => {
-            if (switchableTenants.length < 2 || !tenantId) {
+            if (switchableTenants.length >= 2 && tenantId) {
+              const idx = switchableTenants.findIndex((t) => t.id === tenantId);
+              const next = switchableTenants[(idx + 1) % switchableTenants.length]!;
+              void switchTenant(next.id).then(() => {
+                navigate(`/t/${next.id}/projects`);
+              });
+              return;
+            }
+            if (mode === "admin" && isPlatformAdmin) {
               navigate("/tenants");
               return;
             }
-            const idx = switchableTenants.findIndex((t) => t.id === tenantId);
-            const next =
-              switchableTenants[(idx + 1) % switchableTenants.length]!;
-            void switchTenant(next.id).then(() => {
-              navigate(`/t/${next.id}/projects`);
-            });
+            navigate(tenantId ? `/t/${tenantId}/projects` : "/projects");
           }}
           title="切换租户"
         >
@@ -264,32 +329,86 @@ export function ShellLayout() {
           <Icon icon={ChevronDown} size="sm" className={cn("text-ah-muted", sidebarCollapsed && "min-[681px]:hidden")} />
         </button>
 
+        {showModeSwitch ? (
+          <div
+            className={cn(
+              "mb-5 grid grid-cols-2 gap-1 rounded-[9px] border border-ah-line bg-[#f8fafc] p-1",
+              sidebarCollapsed && "min-[681px]:grid-cols-1",
+            )}
+            role="tablist"
+            aria-label="功能模式"
+          >
+            {(
+              [
+                ["user", "使用", UserRound],
+                ["admin", "管理", Shield],
+              ] as const
+            ).map(([value, label, ModeIcon]) => {
+              const selected = mode === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  title={label === "使用" ? "日常工作入口" : "管理入口，不改变账号权限"}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-center gap-1.5 rounded-[7px] border-0 px-2 py-2 text-[11px] font-medium",
+                    selected
+                      ? "bg-white text-ah-accent shadow-[0_1px_2px_#143a1e14]"
+                      : "bg-transparent text-[#667085] hover:text-[#344054]",
+                  )}
+                  onClick={() => chooseMode(value)}
+                >
+                  <ModeIcon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+                  <span className={cn(sidebarCollapsed && "min-[681px]:sr-only")}>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
         <div
           className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 -mx-2 [scrollbar-width:thin]"
           aria-label="平台导航"
         >
-          <NavGroup
-            label="平台与组织"
-            items={managementNav}
-            projectId={activeProjectId}
-            tenantId={tenantId}
-            collapsed={sidebarCollapsed}
-          />
-          <NavGroup
-            label="工作空间"
-            items={workspaceNav}
-            projectId={activeProjectId}
-            tenantId={tenantId}
-            collapsed={sidebarCollapsed}
-          />
-          <NavGroup
-            label="项目配置"
-            hint="OWNER"
-            items={adminNav}
-            projectId={activeProjectId}
-            tenantId={tenantId}
-            collapsed={sidebarCollapsed}
-          />
+          {managementItems.length > 0 ? (
+            <NavGroup
+              label="平台与组织"
+              items={managementItems}
+              projectId={activeProjectId}
+              tenantId={tenantId}
+              collapsed={sidebarCollapsed}
+            />
+          ) : null}
+          {workspaceItems.length > 0 ? (
+            <NavGroup
+              label="工作空间"
+              items={workspaceItems}
+              projectId={activeProjectId}
+              tenantId={tenantId}
+              collapsed={sidebarCollapsed}
+            />
+          ) : null}
+          {accountItems.length > 0 ? (
+            <NavGroup
+              label="账号"
+              items={accountItems}
+              projectId={activeProjectId}
+              tenantId={tenantId}
+              collapsed={sidebarCollapsed}
+            />
+          ) : null}
+          {projectAdminItems.length > 0 ? (
+            <NavGroup
+              label="项目配置"
+              hint="OWNER"
+              items={projectAdminItems}
+              projectId={activeProjectId}
+              tenantId={tenantId}
+              collapsed={sidebarCollapsed}
+            />
+          ) : null}
         </div>
 
         <div className="mt-3 shrink-0 border-t border-ah-line bg-white pt-3">

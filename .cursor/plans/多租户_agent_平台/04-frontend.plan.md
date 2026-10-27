@@ -77,7 +77,7 @@ flowchart TB
 
 ### Hub Shell 信息架构（对齐最新 html：三组导航）
 
-侧栏三组（见 `index.html`）；顶栏切换租户/项目；无绑定时引导至租户/项目管理。左下角角色切换仅原型演示。  
+侧栏三组（见 `index.html`）；顶栏切换租户/项目；无绑定时引导至租户/项目管理。正式界面在有管理权限时提供「使用 / 管理」导航切换，只改看见的入口，不改权限（见 [10-frontend.md](../../../docs/architecture/10-frontend.md) §10.3.1）。原型左下角切换 owner / developer / viewer 仍只用于演示。  
 **说明**：下表「路由键」为原型 hash（如 `#workbench`）；生产路径为 `/p/:projectId/<键>`（见 [10-frontend.md](../../../docs/architecture/10-frontend.md)）。
 
 **平台与组织**
