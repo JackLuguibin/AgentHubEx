@@ -5,7 +5,8 @@ import type { TenantRole } from "@agenthub/auth";
 import type { Tenant } from "@agenthub/domain";
 import { conflict, forbidden, notFound } from "../errors.js";
 import { abortLiveSessions } from "./session-lifecycle.js";
-import { placeholderTenantDek } from "../lib/crypto.js";
+import { wrapNewTenantDek } from "../lib/envelope.js";
+import { activeKek } from "../lib/kek.js";
 import { newId } from "../lib/id.js";
 import { toIso } from "../lib/time.js";
 import { findOrCreateUserByEmail, getTenantMembership } from "./users.js";
@@ -60,6 +61,8 @@ export async function createTenant(
 
   const owner = await findOrCreateUserByEmail(db, input.ownerEmail, input.name);
   const id = newId();
+  const wrappedDek = await wrapNewTenantDek(activeKek(platformDek));
+  wrappedDek.dek.fill(0);
   const [row] = await db
     .insert(tenants)
     .values({
@@ -69,8 +72,8 @@ export async function createTenant(
       status: "active",
       quota: DEFAULT_QUOTA,
       settings: DEFAULT_SETTINGS,
-      dekCiphertext: placeholderTenantDek(platformDek),
-      dekKeyVersion: 1,
+      dekCiphertext: wrappedDek.blob,
+      dekKeyVersion: wrappedDek.version,
     })
     .returning();
   if (!row) throw new Error("failed to create tenant");

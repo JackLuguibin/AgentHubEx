@@ -15,6 +15,15 @@ export const env = createEnv({
       .string()
       .min(32)
       .default("dev-platform-dek-32bytes-minimum!!"),
+    /** Current KEK. Optional _V{n} keys in the process environment form the dual window. */
+    AGENTHUB_MASTER_KEY: z.string().min(16).optional(),
+    AGENTHUB_MASTER_KEY_VERSION: z.coerce.number().int().positive().optional(),
+    /** Intranet KMS. When set, wrap/unwrap go there and the key is not exported. */
+    KMS_URL: z.string().url().optional(),
+    KMS_TOKEN: z.string().min(1).optional(),
+    KMS_KEY_VERSION: z.coerce.number().int().positive().optional(),
+    /** OTLP/HTTP base, for example http://otel-collector:4318. Empty keeps metrics local. */
+    OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
     APPLY_ROOT: z.string().default("data/apply"),
     BLOB_ROOT: z.string().default("data/blobs"),
     /** Filesystem stand-in when S3_ENDPOINT is unset. Keys match the MinIO layout. */

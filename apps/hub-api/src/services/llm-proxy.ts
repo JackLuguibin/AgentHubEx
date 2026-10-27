@@ -11,7 +11,9 @@ import {
 import { verifyLlmProxyToken } from "@agenthub/auth";
 import type { AppEnv } from "../context.js";
 import { AppError, unauthenticated } from "../errors.js";
-import { decryptSecret } from "../lib/crypto.js";
+import { openCredentialSecret } from "../lib/envelope.js";
+import { activeKek } from "../lib/kek.js";
+import { loadTenantDek } from "./tenant-dek.js";
 import { logger } from "../lib/logger.js";
 import {
   createUsageAccumulator,
@@ -87,7 +89,18 @@ export async function handleLlmProxy(c: Context<AppEnv>): Promise<Response> {
 
   const raw = Buffer.from(await c.req.arrayBuffer());
   const requestModel = modelOf(raw);
-  let secret: string | null = decryptSecret(asBuffer(loaded.ciphertext), c.get("env").PLATFORM_DEK);
+  const platformDek = c.get("env").PLATFORM_DEK;
+  const tenantDek = loaded.tenantId
+    ? await loadTenantDek(c.get("db"), loaded.tenantId, activeKek(platformDek))
+    : null;
+  let secret: string | null = await openCredentialSecret(asBuffer(loaded.ciphertext), {
+    platformDek,
+    kind: loaded.kind === "project" ? "project" : "user",
+    id: bound.credentialId,
+    version: bound.credentialVersion,
+    tenantId: loaded.tenantId,
+    tenantDek,
+  });
   const scratch = Buffer.from(secret, "utf8");
   const headers = upstreamAuthHeaders(loaded.provider, secret, c.req.raw.headers);
 
@@ -201,9 +214,11 @@ async function loadSnapshot(
       throw new AppError(409, "CREDENTIAL_REQUIRED", "Credential is not active");
     }
     return {
+      kind,
       provider: cred.provider,
       baseUrl: baseUrlOf(cred.metadata),
       ciphertext: version.secretCiphertext,
+      tenantId: null as string | null,
     };
   }
 
@@ -216,9 +231,11 @@ async function loadSnapshot(
     throw new AppError(409, "CREDENTIAL_REQUIRED", "Credential is not active");
   }
   return {
+    kind,
     provider: cred.provider,
     baseUrl: baseUrlOf(cred.metadata),
     ciphertext: version.secretCiphertext,
+    tenantId: cred.tenantId,
   };
 }
 

@@ -38,12 +38,13 @@ import { toIso } from "../lib/time.js";
 import { unzipStored } from "../lib/zip.js";
 import { getProjectRow, resolveProjectAccess } from "./projects.js";
 import { assertTenantActive } from "./tenants.js";
+import { managedNodeChannel, syncCommonOnNode } from "./node-sync.js";
 
 type Actor = { userId: string; isPlatformAdmin: boolean };
 type Trigger = ApplyJob["trigger"];
 type Query = Db;
 
-export type CommonSyncEnv = { applyRoot: string };
+export type CommonSyncEnv = { applyRoot: string; nodeCaDir?: string };
 
 type FileRow = typeof commonFiles.$inferSelect;
 
@@ -814,12 +815,32 @@ export async function syncWorkspaceCommon(
       )[0] ?? null)
     : null;
   const root = localRoot(workspace, instance, env.applyRoot);
+  const remote = await managedNodeChannel(
+    db,
+    instance ? { mode: instance.mode, nodeId: instance.nodeId } : null,
+    env.nodeCaDir,
+  );
 
-  if (root) {
-    const written = await materializeCommonTree(
-      root,
-      files.map((file) => ({ path: file.path, content: file.content })),
-    );
+  if (remote || root) {
+    const written = remote
+      ? {
+          added: files.map((file) => file.path),
+          removed: [] as string[],
+          changed: [] as string[],
+          manifest,
+        }
+      : await materializeCommonTree(
+          root!,
+          files.map((file) => ({ path: file.path, content: file.content })),
+        );
+    if (remote) {
+      for (const file of files) {
+        await syncCommonOnNode(remote, workspace.id, {
+          path: file.path,
+          contentBase64: file.content.toString("base64"),
+        });
+      }
+    }
     const [job] = await db
       .insert(applyJobs)
       .values({

@@ -20,7 +20,7 @@ import { AppError, conflict, forbidden, notFound } from "../errors.js";
 import { applySessionIssueLink, prepareSessionIssue } from "./issues.js";
 import { recordAudit, rethrowAccessDenied } from "../lib/audit.js";
 import { credentialSourceAllowed } from "../lib/credential-policy.js";
-import { decryptSecret, encryptSecret } from "../lib/crypto.js";
+import { openNodeSecret, sealNodeSecret } from "../lib/envelope.js";
 import type { HubRuntime } from "../lib/hub-runtime.js";
 import { allowedHostsOf, assertProviderHostAllowed } from "../lib/provider-hosts.js";
 import { assertDailyTokenQuota, tokensPerDayOf } from "../lib/token-quota.js";
@@ -334,6 +334,7 @@ async function ensureMockOrBoundInstance(
 
   // Create a mock external instance for local P0
   const id = newId();
+  const sealed = await sealNodeSecret("mock-password", tenantId, id, platformDek);
   const [inst] = await db
     .insert(runtimeInstances)
     .values({
@@ -349,8 +350,8 @@ async function ensureMockOrBoundInstance(
       healthStatus: "healthy",
       assignedProjectIds: [projectId],
       authUsername: "mock",
-      authSecretCiphertext: encryptSecret("mock-password", platformDek),
-      authKeyVersion: 1,
+      authSecretCiphertext: sealed.blob,
+      authKeyVersion: sealed.keyVersion,
     })
     .returning();
 
@@ -366,17 +367,22 @@ async function ensureMockOrBoundInstance(
   return inst!;
 }
 
-export function toInstanceCtx(
+export async function toInstanceCtx(
   row: typeof runtimeInstances.$inferSelect,
   platformDek: string,
   runtimeMock: boolean,
-): InstanceCtx {
+): Promise<InstanceCtx> {
   const mock = runtimeMock || row.baseUrl.startsWith("mock://");
   let auth: InstanceCtx["auth"];
-  if (row.authUsername && row.authSecretCiphertext) {
+  if (row.authUsername && row.authSecretCiphertext && row.tenantId) {
     auth = {
       username: row.authUsername,
-      password: decryptSecret(Buffer.from(row.authSecretCiphertext), platformDek),
+      password: await openNodeSecret(
+        Buffer.from(row.authSecretCiphertext),
+        row.tenantId,
+        row.id,
+        platformDek,
+      ),
     };
   }
   return {
@@ -656,7 +662,7 @@ export async function createSession(
     ? await prepareSessionIssue(db, projectId, input.issueId)
     : null;
 
-  const ctx = toInstanceCtx(instance, runtime.platformDek, runtime.runtimeMock);
+  const ctx = await toInstanceCtx(instance, runtime.platformDek, runtime.runtimeMock);
   const { ref } = await adapterFor(runtimeType).createSession(ctx, {
     title: input.title,
     agent: input.agent,
@@ -894,7 +900,7 @@ export async function sendMessage(
     .limit(1);
   if (!inst) throw conflict("Runtime instance missing", { code: "UPSTREAM_UNAVAILABLE" });
 
-  const ctx = toInstanceCtx(inst, runtime.platformDek, runtime.runtimeMock);
+  const ctx = await toInstanceCtx(inst, runtime.platformDek, runtime.runtimeMock);
   await injectLlmProxy(db, row, ctx, runtime);
   const messageId = newId();
   await adapterFor(row.runtimeType).sendMessage(ctx, row.runtimeSessionRef, {
@@ -944,7 +950,7 @@ export async function getWorkspaceMe(
   const instance = placed.instance;
   const ws = placed.workspace;
 
-  const ctx = toInstanceCtx(instance, runtime.platformDek, runtime.runtimeMock);
+  const ctx = await toInstanceCtx(instance, runtime.platformDek, runtime.runtimeMock);
   const capabilities = await adapterFor(runtimeType)
     .capabilities(ctx)
     .catch(() =>
@@ -1098,7 +1104,7 @@ export async function loadSessionRuntime(
 
   return {
     session: row,
-    ctx: toInstanceCtx(inst, platformDek, runtimeMock),
+    ctx: await toInstanceCtx(inst, platformDek, runtimeMock),
     runtimeSessionRef: row.runtimeSessionRef,
   };
 }

@@ -56,6 +56,7 @@ function applyEnv(env: AppEnv["Variables"]["env"]) {
     publicBaseUrl: env.PUBLIC_BASE_URL,
     syncTokenSecret: env.SYNC_TOKEN_SECRET,
     syncPrivateKey: env.SYNC_ED25519_PRIVATE_KEY,
+    nodeCaDir: env.NODE_CA_DIR,
   };
 }
 

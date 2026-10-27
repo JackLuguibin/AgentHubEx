@@ -1,7 +1,9 @@
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import https from "node:https";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ensureNodeCa } from "../../hub-api/src/lib/node-ca.ts";
 import { canonicalJson, sha256Buffer } from "@agenthub/config-bundle";
 import { describe, expect, it } from "vitest";
 import { syncOnce } from "./sync.js";
@@ -171,5 +173,48 @@ describe("agenthub-sync", () => {
     const target = join(workdir, "project-common", "docs", "spec.md");
     expect(await readFile(target, "utf8")).toBe("# spec\n");
     await expect(writeFile(target, "nope")).rejects.toThrow();
+  });
+
+  it("talks to the hub mTLS port with a client certificate and still sends the token", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ah-sync-mtls-"));
+    const ca = await ensureNodeCa(dir);
+    const server = https.createServer(
+      {
+        cert: ca.hubServerCert,
+        key: ca.hubServerKey,
+        ca: ca.caPem,
+        requestCert: true,
+        rejectUnauthorized: true,
+      },
+      (req, res) => {
+        const authed = req.headers.authorization === "Bearer sync-token";
+        res.writeHead(authed ? 200 : 401, { "content-type": "application/json" });
+        res.end(authed ? JSON.stringify({ tasks: [] }) : JSON.stringify({ error: { message: "token" } }));
+      },
+    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    try {
+      await expect(
+        syncOnce({
+          hubUrl: `https://127.0.0.1:${port}`,
+          token: "sync-token",
+          workdir: dir,
+          publicKey: publicPem,
+        }),
+      ).rejects.toThrow();
+      const applied = await syncOnce({
+        hubUrl: `https://127.0.0.1:${port}`,
+        token: "sync-token",
+        workdir: dir,
+        publicKey: publicPem,
+        tls: { cert: ca.syncClientCert, key: ca.syncClientKey, ca: ca.caPem },
+      });
+      expect(applied.applied).toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -4,6 +4,7 @@ import { createApp } from "./app.js";
 import { ensureNodeCa } from "./lib/node-ca.js";
 import { createObjectStore } from "./lib/object-store.js";
 import { startHubNodeMtls } from "./lib/node-mtls.js";
+import { exportOtlp } from "./lib/telemetry.js";
 import { logger } from "./lib/logger.js";
 import { startAutoSync } from "./services/auto-sync.js";
 import { attachPtyBridge } from "./services/pty-bridge.js";
@@ -22,6 +23,7 @@ startAutoSync({
     publicBaseUrl: env.PUBLIC_BASE_URL,
     syncTokenSecret: env.SYNC_TOKEN_SECRET,
     syncPrivateKey: env.SYNC_ED25519_PRIVATE_KEY,
+    nodeCaDir: env.NODE_CA_DIR,
   },
   store: createObjectStore({
     endpoint: env.S3_ENDPOINT,
@@ -65,6 +67,13 @@ setInterval(() => {
       sweeping = false;
     });
 }, IDLE_SWEEP_MS).unref();
+
+if (env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+  const otlp = env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  setInterval(() => {
+    exportOtlp(otlp).catch((err) => logger.warn({ err: err instanceof Error ? err.message : "otlp" }, "otlp export failed"));
+  }, 30_000).unref();
+}
 
 if (env.NODE_MTLS_PORT > 0) {
   ensureNodeCa(env.NODE_CA_DIR)

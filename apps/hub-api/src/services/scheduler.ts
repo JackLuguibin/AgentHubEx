@@ -6,7 +6,7 @@ import { can } from "@agenthub/auth";
 import { DEFAULT_CAPABILITIES } from "@agenthub/runtime-contract";
 import { AppError, forbidden, notFound } from "../errors.js";
 import { recordAudit } from "../lib/audit.js";
-import { encryptSecret } from "../lib/crypto.js";
+import { sealNodeSecret } from "../lib/envelope.js";
 import { ensureNodeCa } from "../lib/node-ca.js";
 import type { HubRuntime } from "../lib/hub-runtime.js";
 import { newId } from "../lib/id.js";
@@ -211,6 +211,7 @@ export async function provisionManagedWorkspace(
         })) as { endpoint: string; authSecret?: string; volumePath?: string; containerId?: string };
         const instanceId = newId();
         const secret = created.authSecret || bootToken;
+        const sealed = await sealNodeSecret(secret, input.tenantId, instanceId, runtime.platformDek);
         const [instance] = await db
           .insert(runtimeInstances)
           .values({
@@ -223,8 +224,8 @@ export async function provisionManagedWorkspace(
             baseUrl: created.endpoint,
             tlsVerify: created.endpoint.startsWith("https://"),
             authUsername: "agenthub",
-            authSecretCiphertext: encryptSecret(secret, runtime.platformDek),
-            authKeyVersion: 1,
+            authSecretCiphertext: sealed.blob,
+            authKeyVersion: sealed.keyVersion,
             isolation: "dedicated",
             labels: { managed: "true" },
             healthStatus: "healthy",

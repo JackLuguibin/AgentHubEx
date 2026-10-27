@@ -1,4 +1,5 @@
 import { createPublicKey, verify } from "node:crypto";
+import { mtlsFetch, type SyncTls } from "./mtls-fetch.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { materializeCommonTree } from "@agenthub/common-fs";
@@ -60,8 +61,10 @@ export async function syncOnce(options: {
   publicKey: string;
   fetchImpl?: typeof fetch;
   reloadUrl?: string;
+  /** Present a Hub-issued client certificate. The sync token is still required. */
+  tls?: SyncTls;
 }): Promise<{ applied: number }> {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? (options.tls ? mtlsFetch(options.tls) : fetch);
   const hubUrl = options.hubUrl.replace(/\/$/, "");
   const listed = await fetchImpl(`${hubUrl}/v1/sync/tasks?wait=0`, {
     headers: { authorization: `Bearer ${options.token}` },

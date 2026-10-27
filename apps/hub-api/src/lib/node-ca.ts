@@ -12,6 +12,8 @@ export type NodeCa = {
   caPem: string;
   hubClientCert: string;
   hubClientKey: string;
+  syncClientCert: string;
+  syncClientKey: string;
   hubServerCert: string;
   hubServerKey: string;
   signCsr(csrPem: string): Promise<{ certPem: string; notAfter: Date }>;
@@ -126,12 +128,15 @@ async function loadOrCreate(dir: string): Promise<NodeCa> {
 
   const server = await selfSignedRole("hub-server", "/CN=agenthub-hub", "server.ext");
   const client = await selfSignedRole("hub-client", "/CN=hub-control", "client.ext");
+  const sync = await selfSignedRole("sync-client", "/CN=agenthub-sync", "client.ext");
   const caPem = await readFile(caPemPath, "utf8");
   return {
     dir,
     caPem,
     hubClientCert: client.cert,
     hubClientKey: client.key,
+    syncClientCert: sync.cert,
+    syncClientKey: sync.key,
     hubServerCert: server.cert,
     hubServerKey: server.key,
     signCsr(csrPem: string) {

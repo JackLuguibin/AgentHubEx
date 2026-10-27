@@ -21,8 +21,10 @@ import { llmProxyRoutes } from "./routes/llm-proxy.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { usageRoutes } from "./routes/usage.js";
 import { nodeRoutes } from "./routes/nodes.js";
+import { kekAdminRoutes } from "./routes/kek-admin.js";
 import { syncRoutes } from "./routes/sync.js";
 import { tenantRoutes } from "./routes/tenants.js";
+import { recordRequest, renderPrometheus, routeLabel, startSpan } from "./lib/telemetry.js";
 
 export type CreateAppOptions = {
   db?: Db;
@@ -60,6 +62,18 @@ export function createApp(options: CreateAppOptions = {}) {
   app.onError(errorHandler);
 
   app.use("*", requestIdMiddleware);
+  app.use("*", async (c, next) => {
+    const span = startSpan(`${c.req.method} ${routeLabel(c.req.path)}`);
+    c.header("x-trace-id", span.traceId);
+    const started = process.hrtime.bigint();
+    try {
+      await next();
+    } finally {
+      const seconds = Number(process.hrtime.bigint() - started) / 1e9;
+      recordRequest(c.req.path, c.res.status, seconds);
+      span.end();
+    }
+  });
   app.use(
     "*",
     cors({
@@ -84,6 +98,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.use("*", optionalAuth);
 
   app.get("/healthz", (c) => c.json({ ok: true }));
+  app.get("/metrics", (c) => c.text(renderPrometheus()));
 
   const v1 = new OpenAPIHono<AppEnv>({
     defaultHook: (result, c) => {
@@ -107,6 +122,7 @@ export function createApp(options: CreateAppOptions = {}) {
   });
   v1.route("/auth", authRoutes());
   v1.route("/", nodeRoutes());
+  v1.route("/", kekAdminRoutes());
   v1.route("/sync", syncRoutes());
   v1.route("/me", meRoutes());
   v1.route("/", tenantRoutes());

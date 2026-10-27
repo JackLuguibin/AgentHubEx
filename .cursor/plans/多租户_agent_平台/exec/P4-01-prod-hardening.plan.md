@@ -4,21 +4,22 @@ overview: mTLS、KMS、OTel/告警、可选 K8s。
 todos:
   - id: mtls-nodes
     content: Gateway↔Node Agent / sync mTLS
-    status: pending
+    status: completed
   - id: kms-secrets
     content: 凭据/节点密钥 KMS 或等价信封加密轮换
-    status: pending
+    status: completed
   - id: otel-alerts
     content: OpenTelemetry 指标/追踪 + 告警演练
-    status: pending
+    status: completed
   - id: optional-k8s
     content: 可选 K8s 清单（数据面仍可 Docker，ADR-002）
-    status: pending
+    status: completed
   - id: dod-prod
     content: DoD：渗透无高危；告警演练通过（13.3 P4）
-    status: pending
+    status: completed
 isProject: false
 ---
+
 # P4-01 生产加固
 
 > **索引 todo**：`phase4-prod` · **父索引**：[多租户_agent_平台_c205364b.plan.md](../../多租户_agent_平台_c205364b.plan.md)

@@ -193,7 +193,7 @@ export function commonRoutes() {
         storeOf(c.get("env")),
         workspaceId,
         actor(c),
-        { applyRoot: c.get("env").APPLY_ROOT },
+        { applyRoot: c.get("env").APPLY_ROOT, nodeCaDir: c.get("env").NODE_CA_DIR },
         "manual",
       );
       recordAudit({

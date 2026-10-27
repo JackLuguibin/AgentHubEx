@@ -65,7 +65,7 @@ export async function proxyWorkspaceAgent(
     });
   }
 
-  const ctx = instanceRowToCtx(inst, platformDek);
+  const ctx = await instanceRowToCtx(inst, platformDek);
   if (decision === "pty" && !(await workspacePtyOpen(db, ws.tenantId, ctx, ws.runtimeType))) {
     throw new AppError(501, "NOT_SUPPORTED_BY_RUNTIME", "当前运行实例没有终端能力");
   }
@@ -306,7 +306,7 @@ async function loadWorkspaceCtx(
       details: { code: "UPSTREAM_UNAVAILABLE" },
     });
   }
-  return { ws, inst, ctx: instanceRowToCtx(inst, platformDek) };
+  return { ws, inst, ctx: await instanceRowToCtx(inst, platformDek) };
 }
 
 export async function openWorkspacePty(

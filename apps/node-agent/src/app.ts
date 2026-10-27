@@ -52,10 +52,15 @@ const FileBody = z.object({
     .max(200),
 });
 
-const SyncBody = z.object({
-  url: z.string().url(),
-  path: z.string().min(1),
-});
+const SyncBody = z
+  .object({
+    path: z.string().min(1),
+    url: z.string().url().optional(),
+    contentBase64: z.string().min(1).optional(),
+  })
+  .refine((value) => Boolean(value.url) || Boolean(value.contentBase64), {
+    message: "url or content required",
+  });
 
 function fail(c: { json: (b: unknown, s: 400 | 401 | 404 | 409 | 413 | 415 | 500 | 502) => Response }, status: 400 | 401 | 404 | 409 | 413 | 415 | 500 | 502, code: string, message: string) {
   return c.json({ error: { code, message } }, status);
@@ -199,7 +204,15 @@ export function createNodeApp(deps: NodeAppDeps) {
     if (!row) return fail(c, 404, "WORKSPACE_NOT_FOUND", "workspace not found");
     const parsed = SyncBody.safeParse(await c.req.json());
     if (!parsed.success) return fail(c, 400, "VALIDATION_FAILED", "invalid sync body");
-    const url = new URL(parsed.data.url);
+    if (parsed.data.contentBase64) {
+      const buf = Buffer.from(parsed.data.contentBase64, "base64");
+      if (buf.length > 20 * 1024 * 1024) return fail(c, 413, "PAYLOAD_TOO_LARGE", "common file is too large");
+      const dest = safeChild(row.commonPath, parsed.data.path);
+      await mkdir(path.dirname(dest), { recursive: true });
+      await writeFile(dest, buf);
+      return c.json({ ok: true, bytes: buf.length });
+    }
+    const url = new URL(parsed.data.url ?? "");
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       return fail(c, 400, "VALIDATION_FAILED", "sync url must be http(s)");
     }

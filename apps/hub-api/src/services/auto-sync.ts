@@ -18,6 +18,7 @@ import { logger } from "../lib/logger.js";
 import { newId } from "../lib/id.js";
 import type { ObjectStore } from "../lib/object-store.js";
 import { type ApplyEnv, runQueuedApplyJob } from "./apply-engine.js";
+import { reencryptStoredSecrets } from "./reencrypt.js";
 import { resolveEffectiveConfig } from "./config-bundles.js";
 import { syncWorkspaceCommon } from "./common-space.js";
 
@@ -99,6 +100,8 @@ async function handleJob(name: string, data: { outboxId: string; applyJobId?: st
       await runQueuedApplyJob(deps.db, data.applyJobId, deps.applyEnv);
     } else if (name === "common_push" && data.projectId) {
       await pushCommonProject(deps, data.projectId);
+    } else if (name === "reencrypt") {
+      await reencryptStoredSecrets(deps.db, deps.applyEnv.platformDek);
     }
     await markOutbox(deps.db, data.outboxId, "published");
   } catch (err) {
@@ -122,7 +125,7 @@ async function pushCommonProject(active: AutoSyncDeps, projectId: string) {
         active.store,
         workspace.id,
         { userId: workspace.ownerUserId, isPlatformAdmin: false },
-        { applyRoot: active.applyEnv.applyRoot },
+        { applyRoot: active.applyEnv.applyRoot, nodeCaDir: active.applyEnv.nodeCaDir },
         "publish",
       );
       auditApply({

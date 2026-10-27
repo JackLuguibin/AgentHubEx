@@ -18,7 +18,7 @@ import type {
 } from "@agenthub/domain";
 import type { InstanceCtx } from "@agenthub/runtime-contract";
 import { AppError, conflict, forbidden, notFound } from "../errors.js";
-import { decryptSecret, encryptSecret } from "../lib/crypto.js";
+import { openNodeSecret, sealNodeSecret } from "../lib/envelope.js";
 import { newId } from "../lib/id.js";
 import { toIso } from "../lib/time.js";
 import { resolveProjectAccess } from "./projects.js";
@@ -54,15 +54,20 @@ function mapInstance(
   } as RuntimeInstance;
 }
 
-function rowToCtx(
+async function rowToCtx(
   row: typeof runtimeInstances.$inferSelect,
   platformDek: string,
-): InstanceCtx {
+): Promise<InstanceCtx> {
   let auth: InstanceCtx["auth"];
-  if (row.authUsername && row.authSecretCiphertext) {
+  if (row.authUsername && row.authSecretCiphertext && row.tenantId) {
     auth = {
       username: row.authUsername,
-      password: decryptSecret(Buffer.from(row.authSecretCiphertext), platformDek),
+      password: await openNodeSecret(
+        Buffer.from(row.authSecretCiphertext),
+        row.tenantId,
+        row.id,
+        platformDek,
+      ),
     };
   }
   return {
@@ -236,6 +241,7 @@ export async function registerInstance(
   const probe = await probeUpstream(platformDek, input);
 
   const id = newId();
+  const sealed = input.auth ? await sealNodeSecret(input.auth.password, tenantId, id, platformDek) : null;
   const [row] = await db
     .insert(runtimeInstances)
     .values({
@@ -247,10 +253,8 @@ export async function registerInstance(
       baseUrl: input.baseUrl,
       tlsVerify: input.tlsVerify ?? true,
       authUsername: input.auth?.username,
-      authSecretCiphertext: input.auth
-        ? encryptSecret(input.auth.password, platformDek)
-        : null,
-      authKeyVersion: input.auth ? 1 : null,
+      authSecretCiphertext: sealed?.blob ?? null,
+      authKeyVersion: sealed?.keyVersion ?? null,
       isolation,
       labels: input.labels ?? {},
       healthStatus: probe.ok ? "healthy" : "unhealthy",
@@ -325,6 +329,7 @@ export async function patchInstance(
     healthStatus = "pending";
   }
 
+  const sealed = patch.auth ? await sealNodeSecret(patch.auth.password, row.tenantId, instanceId, platformDek) : null;
   const [updated] = await db
     .update(runtimeInstances)
     .set({
@@ -332,10 +337,8 @@ export async function patchInstance(
       baseUrl: patch.baseUrl ?? row.baseUrl,
       tlsVerify: patch.tlsVerify ?? row.tlsVerify,
       authUsername: patch.auth?.username ?? row.authUsername,
-      authSecretCiphertext: patch.auth
-        ? encryptSecret(patch.auth.password, platformDek)
-        : row.authSecretCiphertext,
-      authKeyVersion: patch.auth ? 1 : row.authKeyVersion,
+      authSecretCiphertext: sealed?.blob ?? row.authSecretCiphertext,
+      authKeyVersion: sealed?.keyVersion ?? row.authKeyVersion,
       isolation: patch.isolation ?? row.isolation,
       labels: patch.labels ?? row.labels,
       maxSessions:
@@ -375,10 +378,15 @@ export async function probeInstance(
     baseUrl: row.baseUrl,
     tlsVerify: row.tlsVerify,
     auth:
-      row.authUsername && row.authSecretCiphertext
+      row.authUsername && row.authSecretCiphertext && row.tenantId
         ? {
             username: row.authUsername,
-            password: decryptSecret(Buffer.from(row.authSecretCiphertext), platformDek),
+            password: await openNodeSecret(
+              Buffer.from(row.authSecretCiphertext),
+              row.tenantId,
+              instanceId,
+              platformDek,
+            ),
           }
         : undefined,
   });
@@ -502,7 +510,7 @@ export async function probeAllInstances(db: Db, platformDek: string) {
     .where(eq(runtimeInstances.mode, "external"));
   for (const row of rows) {
     if (row.healthStatus === "disabled") continue;
-    const ctx = rowToCtx(row, platformDek);
+    const ctx = await rowToCtx(row, platformDek);
     const result = await probeUpstream(platformDek, ctx);
     await writeHealth(db, row.id, result);
   }

@@ -10,7 +10,10 @@ import type { ProjectCredential, UserCredential } from "@agenthub/domain";
 import { conflict, forbidden, notFound } from "../errors.js";
 import { buildCredentialOptions } from "../lib/credential-options.js";
 import { allowedHostsOf, assertProviderHostAllowed } from "../lib/provider-hosts.js";
-import { encryptSecret, last4OfSecret } from "../lib/crypto.js";
+import { last4OfSecret } from "../lib/crypto.js";
+import { sealUserSecret, sealWithTenantDek, secretAad } from "../lib/envelope.js";
+import { activeKek } from "../lib/kek.js";
+import { ensureTenantDek } from "./tenant-dek.js";
 import { newId } from "../lib/id.js";
 import { toIso } from "../lib/time.js";
 import { resolveProjectAccess } from "./projects.js";
@@ -102,15 +105,30 @@ async function insertCredentialVersion(
     platformDek: string;
     createdBy: string;
     rotationMode?: "graceful" | "immediate";
+    tenantId?: string;
+    tenantDek?: Buffer;
   },
 ) {
   const version = input.previousVersion + 1;
+  const kek = activeKek(input.platformDek);
+  const sealed =
+    input.kind === "project" && input.tenantDek && input.tenantId
+      ? {
+          blob: sealWithTenantDek(
+            input.secret,
+            secretAad({ tenantId: input.tenantId, kind: "project", id: input.credentialId, version }),
+            input.tenantDek,
+            kek.currentVersion,
+          ),
+          keyVersion: kek.currentVersion,
+        }
+      : await sealUserSecret(input.secret, input.credentialId, version, input.platformDek);
   await db.insert(credentialVersions).values({
     credentialKind: input.kind,
     credentialId: input.credentialId,
     version,
-    secretCiphertext: encryptSecret(input.secret, input.platformDek),
-    keyVersion: 1,
+    secretCiphertext: sealed.blob,
+    keyVersion: sealed.keyVersion,
     createdBy: input.createdBy,
   });
   if (input.rotationMode === "immediate") {
@@ -150,7 +168,7 @@ export async function createUserCredential(
 ) {
   if (!input.secret) throw conflict("secret is required when creating a credential");
   const id = newId();
-  const ciphertext = encryptSecret(input.secret, platformDek);
+  const sealed = await sealUserSecret(input.secret, id, 1, platformDek);
   const [row] = await db
     .insert(userCredentials)
     .values({
@@ -168,8 +186,8 @@ export async function createUserCredential(
     credentialKind: "user",
     credentialId: id,
     version: 1,
-    secretCiphertext: ciphertext,
-    keyVersion: 1,
+    secretCiphertext: sealed.blob,
+    keyVersion: sealed.keyVersion,
     createdBy: userId,
   });
   return mapUserCred(row!);
@@ -290,6 +308,13 @@ export async function createProjectCredential(
   }
 
   const id = newId();
+  const ensured = await ensureTenantDek(db, access.project.tenantId, platformDek);
+  const ciphertext = sealWithTenantDek(
+    input.secret,
+    secretAad({ tenantId: access.project.tenantId, kind: "project", id, version: 1 }),
+    ensured.dek,
+    ensured.version,
+  );
   const [row] = await db
     .insert(projectCredentials)
     .values({
@@ -312,8 +337,8 @@ export async function createProjectCredential(
     credentialKind: "project",
     credentialId: id,
     version: 1,
-    secretCiphertext: encryptSecret(input.secret, platformDek),
-    keyVersion: 1,
+    secretCiphertext: ciphertext,
+    keyVersion: ensured.version,
     createdBy: userId,
   });
 
@@ -375,6 +400,7 @@ export async function updateProjectCredential(
   let last4 = row.last4;
   if (input.secret) {
     last4 = last4OfSecret(input.secret);
+    const ensured = await ensureTenantDek(db, row.tenantId, platformDek);
     version = await insertCredentialVersion(db, {
       kind: "project",
       credentialId,
@@ -383,6 +409,8 @@ export async function updateProjectCredential(
       platformDek,
       createdBy: userId,
       rotationMode: input.rotationMode,
+      tenantId: row.tenantId,
+      tenantDek: ensured.dek,
     });
   }
 

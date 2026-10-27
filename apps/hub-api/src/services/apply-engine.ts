@@ -21,7 +21,8 @@ import {
   type RenderedTree,
 } from "@agenthub/config-bundle";
 import { AppError, forbidden, notFound } from "../errors.js";
-import { decryptSecret } from "../lib/crypto.js";
+import { openCredentialSecret, openNodeSecret } from "../lib/envelope.js";
+import { activeKek } from "../lib/kek.js";
 import { recordAudit } from "../lib/audit.js";
 import { newId } from "../lib/id.js";
 import { logger } from "../lib/logger.js";
@@ -32,6 +33,8 @@ import {
 } from "../lib/sync-crypto.js";
 import { toIso } from "../lib/time.js";
 import { resolveProjectAccess } from "./projects.js";
+import { loadTenantDek } from "./tenant-dek.js";
+import { applyFilesOnNode, managedNodeChannel } from "./node-sync.js";
 import { readBlob, resolveEffectiveConfig } from "./config-bundles.js";
 
 export type ApplyEnv = {
@@ -42,6 +45,8 @@ export type ApplyEnv = {
   publicBaseUrl: string;
   syncTokenSecret: string;
   syncPrivateKey?: string;
+  /** When the Hub CA is already on disk, managed file apply goes over mTLS. */
+  nodeCaDir?: string;
 };
 
 type Actor = { userId: string; isPlatformAdmin: boolean };
@@ -123,7 +128,19 @@ async function secretMap(db: Db, projectId: string, manifest: Manifest, platform
     if (!version || version.revokedAt) {
       throw new AppError(400, "VALIDATION_FAILED", "项目凭据无法解析");
     }
-    resolved.set(id, decryptSecret(Buffer.from(version.secretCiphertext), platformDek));
+    const kek = activeKek(platformDek);
+    const tenantDek = await loadTenantDek(db, cred.tenantId, kek);
+    resolved.set(
+      id,
+      await openCredentialSecret(Buffer.from(version.secretCiphertext), {
+        platformDek,
+        kind: "project",
+        id,
+        version: cred.currentVersion,
+        tenantId: cred.tenantId,
+        tenantDek,
+      }),
+    );
   }
   return (ref: SecretRef) => {
     if (ref.$secret.kind !== "projectCredential") {
@@ -296,7 +313,33 @@ async function executeJob(
   let error: string | undefined;
   let retryable = false;
 
-  if (root) {
+  const remote = await managedNodeChannel(
+    db,
+    instance ? { mode: instance.mode, nodeId: instance.nodeId } : null,
+    env.nodeCaDir,
+  );
+
+  if (remote) {
+    try {
+      await applyFilesOnNode(remote, workspace.id, {
+        manifest: tree.manifest,
+        files: tree.files.map((item) => ({
+          path: item.path,
+          contentBase64: item.content.toString("base64"),
+        })),
+      });
+      file = "ok";
+      diff = { ...diff, added: tree.files.map((item) => item.path), removed: [], changed: [] };
+    } catch (err) {
+      file = "failed";
+      retryable = true;
+      error = "节点文件通道失败";
+      logger.warn(
+        { jobId: job.id, message: err instanceof Error ? err.message : "node sync failed" },
+        "config apply node channel failed",
+      );
+    }
+  } else if (root) {
     const written = await applyManagedTree(root, tree.files);
     for (const fileItem of tree.files) {
       const onDisk = await readFile(join(root, fileItem.path));
@@ -334,9 +377,14 @@ async function executeJob(
     } else {
       try {
         const header =
-          instance.authUsername && instance.authSecretCiphertext
+          instance.authUsername && instance.authSecretCiphertext && instance.tenantId
             ? `Basic ${Buffer.from(
-                `${instance.authUsername}:${decryptSecret(Buffer.from(instance.authSecretCiphertext), env.platformDek)}`,
+                `${instance.authUsername}:${await openNodeSecret(
+                  Buffer.from(instance.authSecretCiphertext),
+                  instance.tenantId,
+                  instance.id,
+                  env.platformDek,
+                )}`,
               ).toString("base64")}`
             : undefined;
         await pushApi(instance.baseUrl, tree, resolve, header);

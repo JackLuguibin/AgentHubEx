@@ -1,0 +1,62 @@
+# Prometheus rules for architecture 12.4. The drill in apps/hub-api uses the same thresholds.
+groups:
+  - name: agenthub
+    rules:
+      - alert: Hub5xxRatioHigh
+        expr: |
+          sum(rate(hub_http_requests_total{code=~"5.."}[5m]))
+          / sum(rate(hub_http_requests_total[5m])) > 0.02
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: hub-api 5xx ratio is above 2%
+      - alert: HubProxyLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(hub_proxy_upstream_latency_seconds_bucket[5m]))) > 2
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: LLM proxy p95 is above 2s
+      - alert: HubInstanceUnhealthy
+        expr: hub_instance_health == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: a runtime instance has been unhealthy for 5 minutes
+      - alert: HubProvisionSlow
+        expr: histogram_quantile(0.95, sum by (le) (rate(hub_workspace_provision_seconds_bucket[15m]))) > 120
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: workspace provision p95 is above 120s
+      - alert: HubApplyFailedRatio
+        expr: |
+          sum(rate(hub_apply_jobs_total{status="failed"}[15m]))
+          / sum(rate(hub_apply_jobs_total[15m])) > 0.1
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: apply job failure ratio is above 10%
+      - alert: HubTokenQuotaWarning
+        expr: hub_llm_tokens_ratio >= 0.8
+        labels:
+          severity: ticket
+        annotations:
+          summary: tenant token quota is at 80%
+      - alert: HubTokenQuotaExceeded
+        expr: hub_llm_tokens_ratio >= 1
+        labels:
+          severity: page
+        annotations:
+          summary: tenant token quota is exhausted
+      - alert: NodeCapacityLow
+        expr: node_capacity_free_ratio < 0.1
+        for: 5m
+        labels:
+          severity: ticket
+        annotations:
+          summary: a worker node has under 10% free capacity
