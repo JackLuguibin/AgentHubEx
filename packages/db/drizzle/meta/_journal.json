@@ -43,6 +43,13 @@
       "when": 1730000005000,
       "tag": "0005_p3_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1730000006000,
+      "tag": "0006_p1_audit",
+      "breakpoints": true
     }
   ]
 }

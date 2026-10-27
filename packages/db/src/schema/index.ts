@@ -25,3 +25,4 @@ export {
 } from "./config.js";
 export { commonFileVersions, commonFiles, commonProtectedPrefixes } from "./common.js";
 export { usageRecords } from "./usage.js";
+export { auditLogs } from "./audit.js";

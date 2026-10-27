@@ -4,6 +4,7 @@ import { projectMemberships, projects, users } from "@agenthub/db";
 import type { ProjectRole } from "@agenthub/auth";
 import { can } from "@agenthub/auth";
 import type { Project } from "@agenthub/domain";
+import { recordAudit } from "../lib/audit.js";
 import { conflict, forbidden, notFound } from "../errors.js";
 import { newId } from "../lib/id.js";
 import { etagFromUpdatedAt, toIso } from "../lib/time.js";
@@ -380,6 +381,15 @@ export async function patchProjectMember(
         eq(projectMemberships.userId, targetUserId),
       ),
     );
+  recordAudit({
+    action: "member.role",
+    actorId: actorUserId,
+    tenantId: access.project.tenantId,
+    projectId,
+    targetType: "project_member",
+    targetId: targetUserId,
+    meta: { from: existing.role, to: role },
+  });
   const user = await getUserOrThrow(db, targetUserId);
   return {
     userId: user.id,

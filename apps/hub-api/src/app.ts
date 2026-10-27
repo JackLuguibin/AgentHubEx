@@ -24,7 +24,9 @@ import { nodeRoutes } from "./routes/nodes.js";
 import { kekAdminRoutes } from "./routes/kek-admin.js";
 import { syncRoutes } from "./routes/sync.js";
 import { tenantRoutes } from "./routes/tenants.js";
+import { bindAuditDb } from "./lib/audit.js";
 import { recordRequest, renderPrometheus, routeLabel, startSpan } from "./lib/telemetry.js";
+import { auditRoutes } from "./routes/audit.js";
 
 export type CreateAppOptions = {
   db?: Db;
@@ -36,6 +38,7 @@ export function createApp(options: CreateAppOptions = {}) {
   const appEnv = { ...env, ...options.envOverrides };
   bindHubJobsRedis(appEnv.REDIS_URL);
   const db = options.db ?? createDb(appEnv.DATABASE_URL);
+  bindAuditDb(db);
   const redis =
     options.redis ?? new Redis(appEnv.REDIS_URL, { maxRetriesPerRequest: 1 });
 
@@ -134,6 +137,7 @@ export function createApp(options: CreateAppOptions = {}) {
   v1.route("/", issueRoutes());
   v1.route("/", sessionRoutes());
   v1.route("/", usageRoutes());
+  v1.route("/", auditRoutes());
   v1.route("/", configRoutes());
   v1.route("/", commonRoutes());
 
