@@ -18,6 +18,7 @@ import type {
 } from "@agenthub/domain";
 import type { InstanceCtx } from "@agenthub/runtime-contract";
 import { AppError, conflict, forbidden, notFound } from "../errors.js";
+import { logger } from "../lib/logger.js";
 import { openNodeSecret, sealNodeSecret } from "../lib/envelope.js";
 import { newId } from "../lib/id.js";
 import { toIso } from "../lib/time.js";
@@ -510,9 +511,24 @@ export async function probeAllInstances(db: Db, platformDek: string) {
     .where(eq(runtimeInstances.mode, "external"));
   for (const row of rows) {
     if (row.healthStatus === "disabled") continue;
-    const ctx = await rowToCtx(row, platformDek);
-    const result = await probeUpstream(platformDek, ctx);
-    await writeHealth(db, row.id, result);
+    try {
+      const ctx = await rowToCtx(row, platformDek);
+      const result = await probeUpstream(platformDek, ctx);
+      await writeHealth(db, row.id, result);
+    } catch (err) {
+      logger.warn(
+        { instanceId: row.id, err: err instanceof Error ? err.name : "probe" },
+        "instance probe failed",
+      );
+      try {
+        await writeHealth(db, row.id, { ok: false });
+      } catch (writeErr) {
+        logger.warn(
+          { instanceId: row.id, err: writeErr instanceof Error ? writeErr.name : "write" },
+          "instance health write failed",
+        );
+      }
+    }
   }
 }
 
